@@ -140,6 +140,13 @@ are inferred and unverified on real hardware. Path separators are handled via
 is wrong, fix it via `[sources]` / `--source-root` and confirm with `doctor`. WSL
 users should use the Linux build.
 
+**Store permissions on Windows:** the store is restricted to the owner (dir `0700`,
+DB `0600`) on macOS/Linux. On Windows those UNIX modes don't apply — Go's `chmod`
+only toggles the read-only bit — so the DB isn't owner-restricted at the file
+level. In practice it lives under your user profile (`%LocalAppData%`), which is
+already ACL-protected from other standard users; applying NTFS ACLs directly is
+out of scope.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

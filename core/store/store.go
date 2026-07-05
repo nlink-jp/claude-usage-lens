@@ -85,6 +85,11 @@ type sqliteStore struct {
 // Store file permissions. The DB holds metadata (project paths, timestamps) that
 // is personal, so it's kept owner-only: the data dir is 0700 (which also shields
 // the WAL/SHM sidecars) and the DB file is 0600.
+//
+// These are UNIX modes and only take effect on macOS/Linux. On Windows, Go's
+// os.Chmod only toggles the read-only bit, so this does not owner-restrict the
+// file; protection there relies on the user-profile ACLs (%LocalAppData%).
+// Applying NTFS ACLs directly is out of scope (Windows is experimental anyway).
 const (
 	dirPerms    os.FileMode = 0o700
 	dbFilePerms os.FileMode = 0o600

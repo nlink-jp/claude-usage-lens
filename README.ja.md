@@ -137,6 +137,12 @@ macOS を第一級とします。**Windows / Linux は experimental** — プロ
 build tag に隔離。パスが違う場合は `[sources]` / `--source-root` で修正し `doctor` で確認。
 WSL 利用者は Linux ビルドを使ってください。
 
+**Windows でのストア権限:** store は macOS/Linux では所有者のみに制限されます（dir `0700`,
+DB `0600`）。Windows では UNIX パーミッションが効かず（Go の `chmod` は read-only 属性の
+切替のみ）、ファイルレベルでは所有者制限されません。実運用ではユーザープロファイル配下
+（`%LocalAppData%`）に置かれ、他の標準ユーザーからは既に ACL で保護されています。NTFS ACL
+を直接適用する対応はスコープ外です。
+
 ## ライセンス
 
 MIT — [LICENSE](LICENSE) 参照。

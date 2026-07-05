@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Docs
+- Note the Windows limitation of the store-permission hardening: UNIX modes
+  (`0700`/`0600`) don't apply on Windows (Go's `chmod` only toggles read-only),
+  where protection relies on the user-profile ACLs instead; NTFS ACLs are out of
+  scope.
+
 ## [0.2.2] - 2026-07-05
 
 Security & robustness hardening from an external code review (no Critical/High
