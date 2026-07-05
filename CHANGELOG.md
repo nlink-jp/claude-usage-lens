@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Cowork cost is now exact.** `ingest` sources Cowork cost straight from its
+  `audit.jsonl` (Anthropic's `total_cost_usd` / `modelUsage`) instead of computing
+  from the transcript, so the Cowork total matches to the cent and includes
+  internal helper calls (e.g. haiku for titles) the transcript omits. Claude Code
+  (`code`) remains transcript-computed (no audit log); `verify` measures that gap.
+  Model variant tags like `[1m]` are normalized to the base model for grouping.
+  **Migration: delete `usage.db` once** so Cowork rows re-ingest from audit
+  (old transcript-based Cowork rows would otherwise double-count).
+
+### Added
+- `audit.ParseRecords` — turn an audit.jsonl into priced records (one per
+  result-event × model), keyed by `uuid:model` for idempotent upsert. Tested.
+
 ## [0.1.0] - 2026-07-05
 
 First release. A pipe-friendly CLI that parses Claude Code / Cowork local

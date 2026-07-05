@@ -12,6 +12,12 @@
 
 > **コストは定価換算（notional）です。** 表示額は API **定価換算**であり、実請求額では
 > ありません。サブスク（Max/Pro）利用はトークン従量課金ではありません。
+>
+> **ソース別に2つのコスト源:** `cowork` は Cowork 自身の `audit.jsonl`（Anthropic の
+> `total_cost_usd`）をそのまま採用 = **厳密**（内部ヘルパー呼び出しも含む）。`code`
+> （Claude Code）は audit が無いため transcript から計算 = 近似（約5%）で、内部呼び出し
+> （タイトル生成の haiku 等）を取りこぼし・再生分を過大計上しうる。単価計算自体は厳密で、
+> `verify` が transcript と audit の差を定量化します。
 
 ## なぜ
 

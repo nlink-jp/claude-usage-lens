@@ -509,7 +509,10 @@ func runVerify(args []string) error {
 	}
 	fmt.Fprintf(tw, "TOTAL\t$%.4f\t$%.4f\t%+.4f\t%s\n", sumOurs, sumTruth, sumOurs-sumTruth, pctOf(sumOurs-sumTruth, sumTruth))
 	tw.Flush()
-	fmt.Println("\nOURS = our computed notional cost; AUDIT = Cowork audit.jsonl total_cost_usd (ground truth).")
+	fmt.Println("\nOURS = cost recomputed from transcripts (the model the `code` source uses);")
+	fmt.Println("AUDIT = Cowork audit.jsonl total_cost_usd (ground truth). Deltas come from the")
+	fmt.Println("transcript omitting internal helper calls and including replayed turns — not from")
+	fmt.Println("the pricing (exact when tokens match). Stored cowork cost is taken from audit directly.")
 	return nil
 }
 

@@ -65,6 +65,11 @@ docs/{en,ja}/           RFP (canonical design)
 - **Cache tiers matter**: `ephemeral_1h` vs `ephemeral_5m` have different
   multipliers; `cache_read` ≠ `cache_creation`. Service tier (batch) scales the total.
 - **Costs are notional** (API list-price equivalent), not a real bill. Say so in UI.
+- **Dual cost source by origin** (see `core/ingest`): `code` is transcript-computed
+  (notional, ~5% — omits internal helper calls, may over-count replays); `cowork` is
+  taken from `audit.jsonl` (`ParseRecords`, exact). Don't "unify" them — the audit is
+  the right source for cowork, our table for code. Changing this needs a `usage.db`
+  rebuild (old transcript-based cowork rows would double-count new audit rows).
 - **Durability**: `ingest` must never delete store rows when a source file
   disappears (Claude Code auto-deletes old sessions — that's the data-loss we guard).
 - **Windows/Linux are experimental** — paths inferred, unverified on real hardware.

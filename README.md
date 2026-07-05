@@ -12,6 +12,13 @@ durable store, and reports it by day / session / project / model.
 
 > **Costs are notional.** The figures are the API **list-price equivalent**, not
 > an actual bill. Subscription (Max/Pro) usage is not billed per token.
+>
+> **Two cost sources by origin:** `cowork` cost is taken straight from Cowork's
+> own `audit.jsonl` (Anthropic's `total_cost_usd`) — **exact**, including internal
+> helper calls. `code` (Claude Code) has no audit log, so its cost is computed
+> from the transcript — a close estimate (~5%) that omits internal helper calls
+> (e.g. haiku for titles) and can over-count replayed turns. The pricing itself is
+> exact; `verify` quantifies the transcript-vs-audit gap.
 
 ## Why
 
