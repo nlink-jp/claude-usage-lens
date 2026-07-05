@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-05
+
+First release. A pipe-friendly CLI that parses Claude Code / Cowork local
+session logs to collect token usage and compute API list-price-equivalent
+(notional) cost, accumulate it in a durable SQLite store, and report it by
+day / session / project / model — with near-real-time `watch`, period analysis,
+and `verify` against Cowork's own audit ground truth.
+
 ### Added (Phase 2 — near-real-time)
 - `watch` — poll the sources on an interval, incrementally ingest each tick, and
   print live cost deltas; graceful Ctrl-C shutdown. (Polling, not fsnotify:
@@ -68,4 +76,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Windows / Linux support is **experimental** — source paths are inferred and
   unverified on real hardware.
 
-[Unreleased]: https://github.com/nlink-jp/claude-usage-lens
+[Unreleased]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/nlink-jp/claude-usage-lens/releases/tag/v0.1.0
