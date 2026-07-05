@@ -37,9 +37,21 @@ claude-usage-lens ingest     Incrementally load new/changed sessions into the st
 claude-usage-lens report     Aggregate stored usage by day / session / project / model
 claude-usage-lens sessions   List sessions with tokens and cost
 claude-usage-lens models     Show the pricing table and flag drift
+claude-usage-lens verify     Cross-check computed cost against Cowork audit.jsonl (ground truth)
 claude-usage-lens doctor     Diagnose resolved source/store/config paths
 claude-usage-lens watch      [Phase 2] Continuously ingest in near-real-time
 claude-usage-lens version    Print the version
+```
+
+### Accuracy
+
+`verify` compares our computed notional cost against Cowork's own
+`audit.jsonl` `total_cost_usd` (Anthropic's pre-computed cost) per session.
+On the author's data the aggregate agrees within ~5%, with individual sessions
+ranging from exact to ~15% — run it on your machine to check the pricing model:
+
+```sh
+claude-usage-lens verify
 ```
 
 `report` flags:

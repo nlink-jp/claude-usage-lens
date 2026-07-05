@@ -29,6 +29,8 @@ func Execute(version string) {
 		err = runSessions(args)
 	case "models":
 		err = runModels(args)
+	case "verify":
+		err = runVerify(args)
 	case "doctor":
 		err = runDoctor(args)
 	case "watch":
@@ -62,6 +64,7 @@ Commands:
   report     Aggregate stored usage by day / session / project / model
   sessions   List sessions with tokens and cost
   models     Show the pricing table and flag drift
+  verify     Cross-check our computed cost against Cowork audit.jsonl (ground truth)
   doctor     Diagnose resolved source/store/config paths (cross-OS verification)
   watch      [Phase 2] Continuously ingest in near-real-time
   version    Print the version

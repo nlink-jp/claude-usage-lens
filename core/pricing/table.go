@@ -80,21 +80,42 @@ func Default() Table {
 	}
 }
 
-// Lookup returns the rates for a model and whether it is known. It first tries
-// an exact match, then retries with any trailing dated-snapshot suffix stripped
-// (e.g. "claude-haiku-4-5-20251001" → "claude-haiku-4-5"), since Claude Code
-// logs some models by their dated ID. Unknown models (including "<synthetic>")
-// report false and are treated as zero-cost.
+// Lookup returns the rates for a model and whether it is known. It tries an
+// exact match, then normalized variants — stripping a trailing variant tag like
+// "[1m]" (1M-context) and/or a dated-snapshot suffix like "-20251001". So
+// "claude-opus-4-8[1m]" and "claude-haiku-4-5-20251001" both resolve to their
+// base alias. Unknown models (including "<synthetic>") report false → zero cost.
 func (t Table) Lookup(model string) (Rates, bool) {
-	if r, ok := t[model]; ok {
-		return r, true
-	}
-	if base := stripDateSuffix(model); base != model {
-		if r, ok := t[base]; ok {
+	for _, c := range candidates(model) {
+		if r, ok := t[c]; ok {
 			return r, true
 		}
 	}
 	return Rates{}, false
+}
+
+// candidates returns the model plus its normalized forms, most-specific first.
+func candidates(m string) []string {
+	out := []string{m}
+	if b := stripBracketSuffix(m); b != m {
+		out = append(out, b)
+	}
+	for _, c := range append([]string{}, out...) {
+		if d := stripDateSuffix(c); d != c {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// stripBracketSuffix removes a trailing "[...]" variant tag (e.g. "[1m]").
+func stripBracketSuffix(m string) string {
+	if strings.HasSuffix(m, "]") {
+		if i := strings.LastIndexByte(m, '['); i > 0 {
+			return m[:i]
+		}
+	}
+	return m
 }
 
 // stripDateSuffix removes a trailing "-YYYYMMDD" or "@YYYYMMDD" snapshot suffix.

@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"github.com/nlink-jp/claude-usage-lens/core/aggregate"
+	"github.com/nlink-jp/claude-usage-lens/core/audit"
+	"github.com/nlink-jp/claude-usage-lens/core/collect"
+	"github.com/nlink-jp/claude-usage-lens/core/cost"
 	"github.com/nlink-jp/claude-usage-lens/core/ingest"
 	"github.com/nlink-jp/claude-usage-lens/core/model"
 	"github.com/nlink-jp/claude-usage-lens/core/platform"
@@ -424,6 +427,91 @@ func runModels(args []string) error {
 	}
 	tw.Flush()
 	fmt.Println("\nRates USD per 1M tokens (as of 2026-07-05). Override via config.toml [pricing].")
+	return nil
+}
+
+// --- verify (cross-check our cost against Cowork audit.jsonl ground truth) ---
+
+func runVerify(args []string) error {
+	fs := flag.NewFlagSet("verify", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "machine-readable JSON output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	roots, err := platform.SourceRoots()
+	if err != nil {
+		return err
+	}
+	auditFiles, err := audit.DiscoverFiles(roots.CoworkRoot)
+	if err != nil {
+		return err
+	}
+	if len(auditFiles) == 0 {
+		return fmt.Errorf("no Cowork audit.jsonl found under %s (verify needs Cowork data)", roots.CoworkRoot)
+	}
+
+	tbl := pricing.Default()
+	host, _ := os.Hostname()
+
+	type vrow struct {
+		Session  string  `json:"session"`
+		OursUSD  float64 `json:"ours_usd"`
+		TruthUSD float64 `json:"truth_usd"`
+		DeltaUSD float64 `json:"delta_usd"`
+	}
+	var rows []vrow
+	var sumOurs, sumTruth float64
+
+	for _, af := range auditFiles {
+		dir := filepath.Dir(af)
+		g, err := audit.Parse(af)
+		if err != nil {
+			continue
+		}
+		// Our cost for every transcript under the same session dir (incl subagents).
+		files, _ := collect.Discover("", dir)
+		var recs []model.UsageRecord
+		for _, fl := range files {
+			rs, err := collect.ParseFile(fl.Path, model.SourceCowork, host)
+			if err != nil {
+				continue
+			}
+			recs = append(recs, rs...)
+		}
+		recs = collect.Dedup(recs)
+		var ours float64
+		for _, r := range recs {
+			ours += cost.ComputeRecord(r, tbl).ListPriceUSD
+		}
+		rows = append(rows, vrow{filepath.Base(dir), ours, g.TotalUSD, ours - g.TotalUSD})
+		sumOurs += ours
+		sumTruth += g.TotalUSD
+	}
+
+	if *asJSON {
+		return printJSON(map[string]any{
+			"sessions":        rows,
+			"total_ours_usd":  sumOurs,
+			"total_truth_usd": sumTruth,
+			"total_delta_usd": sumOurs - sumTruth,
+		})
+	}
+
+	pctOf := func(delta, truth float64) string {
+		if truth == 0 {
+			return "—"
+		}
+		return fmt.Sprintf("%+.1f%%", delta/truth*100)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "SESSION\tOURS(USD)\tAUDIT(USD)\tDELTA\tDELTA%")
+	for _, r := range rows {
+		fmt.Fprintf(tw, "%s\t$%.4f\t$%.4f\t%+.4f\t%s\n", r.Session, r.OursUSD, r.TruthUSD, r.DeltaUSD, pctOf(r.DeltaUSD, r.TruthUSD))
+	}
+	fmt.Fprintf(tw, "TOTAL\t$%.4f\t$%.4f\t%+.4f\t%s\n", sumOurs, sumTruth, sumOurs-sumTruth, pctOf(sumOurs-sumTruth, sumTruth))
+	tw.Flush()
+	fmt.Println("\nOURS = our computed notional cost; AUDIT = Cowork audit.jsonl total_cost_usd (ground truth).")
 	return nil
 }
 

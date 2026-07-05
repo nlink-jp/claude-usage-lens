@@ -42,6 +42,13 @@ func TestLookup_DatedSnapshotSuffix(t *testing.T) {
 	if _, ok := tbl.Lookup("claude-opus-4-5@20251101"); !ok {
 		t.Error("@-dated opus snapshot should resolve to the base alias")
 	}
+	// [1m] variant tag (1M context) resolves to base rates.
+	if r, ok := tbl.Lookup("claude-opus-4-8[1m]"); !ok || r.InputPerMTok != 5 {
+		t.Errorf("[1m] variant should resolve to base opus rates: %+v ok=%v", r, ok)
+	}
+	if _, ok := tbl.Lookup("claude-fable-5[1m]"); !ok {
+		t.Error("fable [1m] variant should resolve")
+	}
 	// A non-date suffix must NOT be stripped.
 	if _, ok := tbl.Lookup("claude-opus-4-8-turbo"); ok {
 		t.Error("non-date suffix should not resolve")

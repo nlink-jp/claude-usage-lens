@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (validation — Phase 1 step 6)
+- `core/audit` — parse Cowork audit.jsonl ground-truth cost (result events'
+  `total_cost_usd` + per-model `modelUsage`).
+- `verify` command — cross-check computed cost vs audit per session, with
+  Δ/Δ%. On the author's data, aggregate agrees within ~5% (one session exact).
+- `pricing.Lookup` normalizes variant tags like `[1m]` (1M-context) to the base
+  alias, alongside dated-snapshot suffixes.
+
 ### Added (analysis features)
 - `report` time granularity: `--group-by hour|week|month` (in addition to day).
 - `report --sort key|cost|input|output|records|cache` + `--top N`.

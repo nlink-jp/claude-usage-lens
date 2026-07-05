@@ -8,9 +8,10 @@ accumulate it in a durable SQLite store, and report it by day / session / projec
 / model. Personal-local scope first; designed for a future Wails GUI to reuse the
 same core.
 
-Current state: **Phase 1 working** — `ingest`, `report`, `sessions`, `models`,
-`doctor` run end-to-end (pricing, parse, dedup, SQLite store, aggregation, all
-tested). Only `watch` (near-real-time, Phase 2) remains stubbed.
+Current state: **Phase 1 complete** — `ingest`, `report` (with period analysis:
+granularity, sort/top, summary, compare), `sessions`, `models`, `verify`,
+`doctor` run end-to-end (pricing, parse, dedup, SQLite store, aggregation, audit
+cross-check, all tested). Only `watch` (near-real-time, Phase 2) remains stubbed.
 
 ## Build & test
 
@@ -34,8 +35,9 @@ core/                   reusable, OS-neutral core (imported by CLI and future GU
   cost/                 pure cost engine  [tested]
   collect/              ParseFile/ParseFrom, Discover, Dedup [tested]
   ingest/               collect → dedup → price → store orchestration
-  aggregate/            group-by roll-up [tested]
+  aggregate/            group-by roll-up + sort/summary [tested]
   store/                SQLite persistence (modernc.org/sqlite) [tested]
+  audit/                parse Cowork audit.jsonl ground-truth cost [tested]
   platform/             build-tagged OS paths: paths_{darwin,windows,linux}.go [tested]
 docs/{en,ja}/           RFP (canonical design)
 ```
@@ -68,8 +70,10 @@ docs/{en,ja}/           RFP (canonical design)
 ## Testing strategy
 
 - Unit tests use synthetic fixtures / rates (PII-free, Secret-Scanning-safe).
-- Phase 1 adds a **local-only validation harness** (gitignored: `testdata/real/`)
-  cross-checking computed cost against Cowork `audit.jsonl` `total_cost_usd`.
+- The RFP's "validation harness" shipped instead as the **`verify` command**
+  (reusable, commits no real data): it cross-checks computed cost against Cowork
+  `audit.jsonl` `total_cost_usd` on the user's own machine. Aggregate agrees
+  within ~5% on the author's data — outlier sessions are follow-up targets.
 
 ## Design reference
 
