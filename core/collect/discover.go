@@ -19,11 +19,12 @@ type Discovered struct {
 // (typically resolved by core/platform for the host OS). Path building/matching
 // uses path/filepath so separators are correct on every OS.
 //
-// For the code root, every *.jsonl is a transcript. For the cowork root, only
-// files under an "outputs/" segment are transcripts (session outputs + their
-// subagents/) — audit.jsonl lives outside outputs/ and is deliberately excluded
-// (it carries pre-computed cost and would double-count; it is the validation
-// harness's ground truth, not an ingest source).
+// For the code root, every *.jsonl is a transcript. For the cowork root, a
+// session embeds a full Claude Code tree, so transcripts live under a
+// ".claude/projects/" segment (the session output and its subagents/). Files
+// outside that — audit.jsonl (pre-computed cost; would double-count, and is the
+// validation harness's ground truth) and skills-plugin script templates — are
+// deliberately excluded.
 func Discover(codeRoot, coworkRoot string) ([]Discovered, error) {
 	var out []Discovered
 
@@ -60,5 +61,5 @@ func Discover(codeRoot, coworkRoot string) ([]Discovered, error) {
 func isJSONL(p string) bool { return strings.HasSuffix(p, ".jsonl") }
 
 func isCoworkTranscript(p string) bool {
-	return isJSONL(p) && strings.Contains(filepath.ToSlash(p), "/outputs/")
+	return isJSONL(p) && strings.Contains(filepath.ToSlash(p), "/.claude/projects/")
 }
