@@ -28,13 +28,54 @@ func TierMultiplier(tier string) float64 {
 // the user's config.toml [pricing] section at load time.
 type Table map[string]Rates
 
+// Standard cache/tier multipliers. These are model-independent in Anthropic's
+// pricing: a cache read costs 0.1× the base input rate, a 5-minute ephemeral
+// cache write 1.25×, and a 1-hour ephemeral cache write 2×.
+const (
+	cacheReadMult    = 0.10
+	cacheWrite5mMult = 1.25
+	cacheWrite1hMult = 2.00
+)
+
+// rates builds a Rates from base input/output prices, applying the standard
+// cache multipliers. Web server-tool per-request prices default to 0 — set them
+// via config.toml [pricing] if you bill for web_search / web_fetch (the current
+// published per-request rate isn't modeled here to avoid baking a stale number).
+func rates(input, output float64) Rates {
+	return Rates{
+		InputPerMTok:           input,
+		OutputPerMTok:          output,
+		CacheReadMultiplier:    cacheReadMult,
+		CacheWrite1hMultiplier: cacheWrite1hMult,
+		CacheWrite5mMultiplier: cacheWrite5mMult,
+	}
+}
+
 // Default returns the built-in rate table.
 //
-// TODO(phase1): populate with the current published Claude prices. Rates must be
-// fetched at implementation time (see /claude-api) and NOT filled from memory —
-// prices drift. Deliberately empty for now so unknown/synthetic models cost 0.
+// Prices are USD per 1M tokens, current as of 2026-07-05 (source: Anthropic
+// published pricing). Override or extend via config.toml [pricing]. Unknown
+// models (including "<synthetic>") are absent by design → zero cost.
+//
+// Note: claude-sonnet-5 has an introductory $2/$10 rate through 2026-08-31; the
+// durable $3/$15 is baked here. Override in config if you want intro-rate costing.
 func Default() Table {
-	return Table{}
+	return Table{
+		// Fable / Mythos tier
+		"claude-fable-5":  rates(10, 50),
+		"claude-mythos-5": rates(10, 50),
+		// Opus tier
+		"claude-opus-4-8": rates(5, 25),
+		"claude-opus-4-7": rates(5, 25),
+		"claude-opus-4-6": rates(5, 25),
+		"claude-opus-4-5": rates(5, 25),
+		// Sonnet tier
+		"claude-sonnet-5":   rates(3, 15),
+		"claude-sonnet-4-6": rates(3, 15),
+		"claude-sonnet-4-5": rates(3, 15),
+		// Haiku tier
+		"claude-haiku-4-5": rates(1, 5),
+	}
 }
 
 // Lookup returns the rates for a model and whether it is known. Unknown models
