@@ -1,12 +1,21 @@
 // Package store persists priced records durably so reports are fast and data
 // survives Claude Code's automatic session cleanup.
 //
-// The Phase 1 implementation uses modernc.org/sqlite (pure-Go, no CGO) in WAL
-// mode, so a running `watch` and an ad-hoc `report` can touch the DB concurrently
-// on every OS without a C toolchain.
+// The implementation uses modernc.org/sqlite (pure-Go, no CGO) in WAL mode, so a
+// running `watch` and an ad-hoc `report` can touch the DB concurrently on every
+// OS without a C toolchain.
 package store
 
-import "github.com/nlink-jp/claude-usage-lens/core/model"
+import (
+	"database/sql"
+	"os"
+	"path/filepath"
+	"time"
+
+	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
+
+	"github.com/nlink-jp/claude-usage-lens/core/model"
+)
 
 // Store is the persistence boundary. Implementations must be safe to Open from a
 // scheduled `ingest` and a long-running `watch` alike.
@@ -16,7 +25,7 @@ type Store interface {
 	// outlive deletion of the source transcripts. Returns the count newly inserted.
 	Upsert(recs []model.PricedRecord) (inserted int, err error)
 
-	// Query returns priced records matching the filter.
+	// Query returns priced records matching the filter, ordered by timestamp.
 	Query(f Filter) ([]model.PricedRecord, error)
 
 	// IngestState / SetIngestState track how far each source file has been read,
@@ -34,11 +43,203 @@ type Filter struct {
 	Source model.Source // "" = all sources
 }
 
-// Open opens (creating if absent) the SQLite store at path.
-//
-// TODO(phase1): wire modernc.org/sqlite — create the usage_records
-// (message_id PRIMARY KEY) and ingest_state (path PRIMARY KEY) tables, enable WAL,
-// and return a concrete *sqliteStore. Returns ErrNotImplemented until then.
-func Open(path string) (Store, error) {
-	return nil, model.ErrNotImplemented
+const schema = `
+CREATE TABLE IF NOT EXISTS usage_records (
+  message_id    TEXT PRIMARY KEY,
+  request_id    TEXT,
+  ts            INTEGER,
+  source        TEXT,
+  entrypoint    TEXT,
+  host          TEXT,
+  session_id    TEXT,
+  project       TEXT,
+  model         TEXT,
+  service_tier  TEXT,
+  input_tokens  INTEGER,
+  output_tokens INTEGER,
+  cache_read    INTEGER,
+  cache_1h      INTEGER,
+  cache_5m      INTEGER,
+  web_search    INTEGER,
+  web_fetch     INTEGER,
+  cost_usd      REAL,
+  ingested_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_usage_ts     ON usage_records(ts);
+CREATE INDEX IF NOT EXISTS idx_usage_source ON usage_records(source);
+CREATE INDEX IF NOT EXISTS idx_usage_model  ON usage_records(model);
+
+CREATE TABLE IF NOT EXISTS ingest_state (
+  path        TEXT PRIMARY KEY,
+  size        INTEGER,
+  mtime       INTEGER,
+  last_offset INTEGER,
+  updated_at  INTEGER
+);
+`
+
+type sqliteStore struct {
+	db *sql.DB
 }
+
+// Open opens (creating if absent) the SQLite store at path, enabling WAL mode
+// and creating the schema.
+func Open(path string) (Store, error) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA synchronous=NORMAL",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &sqliteStore{db: db}, nil
+}
+
+const upsertSQL = `INSERT INTO usage_records
+ (message_id, request_id, ts, source, entrypoint, host, session_id, project, model, service_tier,
+  input_tokens, output_tokens, cache_read, cache_1h, cache_5m, web_search, web_fetch, cost_usd, ingested_at)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ ON CONFLICT(message_id) DO NOTHING`
+
+func (s *sqliteStore) Upsert(recs []model.PricedRecord) (int, error) {
+	if len(recs) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	stmt, err := tx.Prepare(upsertSQL)
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	defer stmt.Close()
+
+	now := time.Now().Unix()
+	inserted := 0
+	for _, r := range recs {
+		key := r.MessageID
+		if key == "" {
+			// Anomalous record with no message id — synthesize a stable key so we
+			// neither drop it nor collide distinct records onto one row.
+			key = "noid:" + r.RequestID + ":" + r.SessionID
+		}
+		var tsUnix int64
+		if !r.Timestamp.IsZero() {
+			tsUnix = r.Timestamp.Unix()
+		}
+		res, err := stmt.Exec(
+			key, r.RequestID, tsUnix, string(r.Source), string(r.Entrypoint), r.Host,
+			r.SessionID, r.Project, r.Model, r.ServiceTier,
+			r.Usage.InputTokens, r.Usage.OutputTokens, r.Usage.CacheReadInputTokens,
+			r.Usage.CacheCreation1h, r.Usage.CacheCreation5m,
+			r.Usage.WebSearchRequests, r.Usage.WebFetchRequests, r.Cost.ListPriceUSD, now,
+		)
+		if err != nil {
+			tx.Rollback()
+			return inserted, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			inserted++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return inserted, err
+	}
+	return inserted, nil
+}
+
+const querySelect = `SELECT message_id, request_id, ts, source, entrypoint, host, session_id, project, model, service_tier,
+ input_tokens, output_tokens, cache_read, cache_1h, cache_5m, web_search, web_fetch, cost_usd
+ FROM usage_records WHERE 1=1`
+
+func (s *sqliteStore) Query(f Filter) ([]model.PricedRecord, error) {
+	q := querySelect
+	var args []any
+	if f.Since > 0 {
+		q += " AND ts >= ?"
+		args = append(args, f.Since)
+	}
+	if f.Until > 0 {
+		q += " AND ts <= ?"
+		args = append(args, f.Until)
+	}
+	if f.Source != "" {
+		q += " AND source = ?"
+		args = append(args, string(f.Source))
+	}
+	q += " ORDER BY ts"
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.PricedRecord
+	for rows.Next() {
+		var r model.PricedRecord
+		var tsUnix int64
+		var src, ep string
+		if err := rows.Scan(
+			&r.MessageID, &r.RequestID, &tsUnix, &src, &ep, &r.Host,
+			&r.SessionID, &r.Project, &r.Model, &r.ServiceTier,
+			&r.Usage.InputTokens, &r.Usage.OutputTokens, &r.Usage.CacheReadInputTokens,
+			&r.Usage.CacheCreation1h, &r.Usage.CacheCreation5m,
+			&r.Usage.WebSearchRequests, &r.Usage.WebFetchRequests, &r.Cost.ListPriceUSD,
+		); err != nil {
+			return out, err
+		}
+		r.Source = model.Source(src)
+		r.Entrypoint = model.Entrypoint(ep)
+		r.Cost.Tier = r.ServiceTier
+		if tsUnix > 0 {
+			r.Timestamp = time.Unix(tsUnix, 0).UTC()
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) IngestState(path string) (int64, bool, error) {
+	var off int64
+	err := s.db.QueryRow("SELECT last_offset FROM ingest_state WHERE path = ?", path).Scan(&off)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return off, true, nil
+}
+
+func (s *sqliteStore) SetIngestState(path string, size, mtime, offset int64) error {
+	_, err := s.db.Exec(
+		`INSERT INTO ingest_state (path, size, mtime, last_offset, updated_at)
+		 VALUES (?,?,?,?,?)
+		 ON CONFLICT(path) DO UPDATE SET
+		   size=excluded.size, mtime=excluded.mtime,
+		   last_offset=excluded.last_offset, updated_at=excluded.updated_at`,
+		path, size, mtime, offset, time.Now().Unix(),
+	)
+	return err
+}
+
+func (s *sqliteStore) Close() error { return s.db.Close() }
