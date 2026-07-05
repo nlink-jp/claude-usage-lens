@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-05
+
+Security & robustness hardening from an external code review (no Critical/High
+findings; these are defense-in-depth improvements).
+
+### Security
+- Store is now owner-only: the data dir is created/tightened to `0700` (also
+  shielding the WAL/SHM sidecars, including on existing installs) and the DB file
+  is `0600`, instead of relying on the umask ([#1](https://github.com/nlink-jp/claude-usage-lens/issues/1)).
+- The daemon-log fallback uses the per-user `os.TempDir()` instead of the
+  world-writable, sticky `/tmp`, closing a symlink/pre-creation race on shared
+  machines ([#2](https://github.com/nlink-jp/claude-usage-lens/issues/2)).
+
+### Changed
+- Discovery aborts with a clear error if a scan exceeds a high entry cap
+  (1,000,000) — a safety net against a source root misconfigured to a filesystem
+  root; never a silent truncation ([#3](https://github.com/nlink-jp/claude-usage-lens/issues/3)).
+
 ## [0.2.1] - 2026-07-05
 
 ### Added
