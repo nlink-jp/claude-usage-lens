@@ -5,9 +5,10 @@
 解析し、API **定価換算**のコストを計算、永続ストアに蓄積して、日次 / セッション /
 プロジェクト / モデル別に集計します。
 
-> **ステータス: WIP（Phase 1 scaffold）。** 収集コアを構築中。コスト計算・dedup・
-> プラットフォーム別パス解決は実装済み、ingest / report / store の内部は Phase 1 で実装。
-> 設計は [docs/ja/claude-usage-lens-rfp.ja.md](docs/ja/claude-usage-lens-rfp.ja.md) を参照。
+> **ステータス: Phase 1。** `ingest` / `report` / `sessions` / `models` / `doctor`
+> は end-to-end で実装済み（pricing・parse・dedup・SQLite ストア・集計）。`watch`
+> （near-realtime）は Phase 2。設計は
+> [docs/ja/claude-usage-lens-rfp.ja.md](docs/ja/claude-usage-lens-rfp.ja.md) を参照。
 
 > **コストは定価換算（notional）です。** 表示額は API **定価換算**であり、実請求額では
 > ありません。サブスク（Max/Pro）利用はトークン従量課金ではありません。

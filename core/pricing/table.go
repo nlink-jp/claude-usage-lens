@@ -2,6 +2,8 @@
 // It is self-contained (no I/O, no other core deps) so the cost engine stays pure.
 package pricing
 
+import "strings"
+
 // Rates are USD prices per 1,000,000 tokens for a single model, plus the
 // cache/token-type multipliers applied relative to the input price.
 type Rates struct {
@@ -78,9 +80,40 @@ func Default() Table {
 	}
 }
 
-// Lookup returns the rates for a model and whether it is known. Unknown models
-// (including "<synthetic>") report false and are treated as zero-cost.
+// Lookup returns the rates for a model and whether it is known. It first tries
+// an exact match, then retries with any trailing dated-snapshot suffix stripped
+// (e.g. "claude-haiku-4-5-20251001" → "claude-haiku-4-5"), since Claude Code
+// logs some models by their dated ID. Unknown models (including "<synthetic>")
+// report false and are treated as zero-cost.
 func (t Table) Lookup(model string) (Rates, bool) {
-	r, ok := t[model]
-	return r, ok
+	if r, ok := t[model]; ok {
+		return r, true
+	}
+	if base := stripDateSuffix(model); base != model {
+		if r, ok := t[base]; ok {
+			return r, true
+		}
+	}
+	return Rates{}, false
+}
+
+// stripDateSuffix removes a trailing "-YYYYMMDD" or "@YYYYMMDD" snapshot suffix.
+func stripDateSuffix(m string) string {
+	for _, sep := range []byte{'-', '@'} {
+		i := strings.LastIndexByte(m, sep)
+		if i <= 0 || i != len(m)-9 { // need sep + exactly 8 trailing chars
+			continue
+		}
+		allDigits := true
+		for _, c := range m[i+1:] {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return m[:i]
+		}
+	}
+	return m
 }

@@ -5,9 +5,9 @@ session logs — no Console or billing API required. Parses the local JSONL
 transcripts, computes an API **list-price-equivalent** cost, accumulates it in a
 durable store, and reports it by day / session / project / model.
 
-> **Status: WIP (Phase 1 scaffold).** The collection core is being built; the
-> cost engine, dedup, and platform path resolution are implemented, and the
-> remaining ingest / report / store internals are stubbed. See
+> **Status: Phase 1.** `ingest`, `report`, `sessions`, `models`, and `doctor`
+> are implemented and working end-to-end (pricing, parse, dedup, SQLite store,
+> aggregation). `watch` (near-real-time) lands in Phase 2. See
 > [docs/en/claude-usage-lens-rfp.md](docs/en/claude-usage-lens-rfp.md) for the design.
 
 > **Costs are notional.** The figures are the API **list-price equivalent**, not

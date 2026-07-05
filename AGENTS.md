@@ -8,9 +8,9 @@ accumulate it in a durable SQLite store, and report it by day / session / projec
 / model. Personal-local scope first; designed for a future Wails GUI to reuse the
 same core.
 
-Current state: **Phase 1 scaffold** — compiles, tests pass, `doctor` works. The
-cost engine, dedup, and platform paths are implemented; ingest/report/store/watch
-are stubbed (`model.ErrNotImplemented`).
+Current state: **Phase 1 working** — `ingest`, `report`, `sessions`, `models`,
+`doctor` run end-to-end (pricing, parse, dedup, SQLite store, aggregation, all
+tested). Only `watch` (near-real-time, Phase 2) remains stubbed.
 
 ## Build & test
 
@@ -32,9 +32,10 @@ core/                   reusable, OS-neutral core (imported by CLI and future GU
   model/                types + ErrNotImplemented
   pricing/             rate table + tier/cache multipliers (self-contained)
   cost/                 pure cost engine  [tested]
-  collect/              Dedup [tested]; ParseFile / Discover stubs
-  aggregate/            group-by roll-up (stub)
-  store/                SQLite persistence interface (stub → modernc.org/sqlite)
+  collect/              ParseFile/ParseFrom, Discover, Dedup [tested]
+  ingest/               collect → dedup → price → store orchestration
+  aggregate/            group-by roll-up [tested]
+  store/                SQLite persistence (modernc.org/sqlite) [tested]
   platform/             build-tagged OS paths: paths_{darwin,windows,linux}.go [tested]
 docs/{en,ja}/           RFP (canonical design)
 ```

@@ -47,12 +47,37 @@ type rawLine struct {
 // ParseFile reads one JSONL transcript and returns its assistant usage records.
 // src/host describe provenance stamped onto every record.
 func ParseFile(path string, src model.Source, host string) ([]model.UsageRecord, error) {
+	recs, _, err := ParseFrom(path, 0, src, host)
+	return recs, err
+}
+
+// ParseFrom reads a transcript starting at byte offset and returns its records
+// plus the file's current size (the new offset to persist). Transcripts are
+// append-only whole-line JSONL, so a previously-recorded offset always lands on
+// a line boundary. If the file has shrunk below offset (rotated/truncated), it
+// is re-read from the start.
+func ParseFrom(path string, offset int64, src model.Source, host string) (recs []model.UsageRecord, newOffset int64, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer f.Close()
-	return parseReader(f, src, host)
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	size := fi.Size()
+	if offset < 0 || offset > size {
+		offset = 0
+	}
+	if offset > 0 {
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			return nil, 0, err
+		}
+	}
+	recs, err = parseReader(f, src, host)
+	return recs, size, err
 }
 
 // parseReader is the testable core of ParseFile. It streams lines, trims a

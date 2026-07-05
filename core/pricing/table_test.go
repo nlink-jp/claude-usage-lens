@@ -29,6 +29,25 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 	}
 }
 
+func TestLookup_DatedSnapshotSuffix(t *testing.T) {
+	tbl := Default()
+	r, ok := tbl.Lookup("claude-haiku-4-5-20251001")
+	if !ok {
+		t.Fatal("dated haiku snapshot should resolve to the base alias")
+	}
+	if r.InputPerMTok != 1 || r.OutputPerMTok != 5 {
+		t.Errorf("dated snapshot resolved to wrong rates: %+v", r)
+	}
+	// @-separated snapshot (Vertex style) also resolves.
+	if _, ok := tbl.Lookup("claude-opus-4-5@20251101"); !ok {
+		t.Error("@-dated opus snapshot should resolve to the base alias")
+	}
+	// A non-date suffix must NOT be stripped.
+	if _, ok := tbl.Lookup("claude-opus-4-8-turbo"); ok {
+		t.Error("non-date suffix should not resolve")
+	}
+}
+
 func TestDefaultTable_UnknownModelIsFree(t *testing.T) {
 	tbl := Default()
 	if _, ok := tbl.Lookup("<synthetic>"); ok {
