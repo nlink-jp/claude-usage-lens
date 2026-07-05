@@ -85,6 +85,8 @@ claude-usage-lens verify
 - **グループ化**: `--group-by hour|day|week|month|session|project|model|entrypoint`（カンマ区切り）
 - **フィルタ**: `--source code|cowork|all`, `--entrypoint`, `--model`（部分一致）, `--project`（部分一致）
 - **ソート/上位**: `--sort key|cost|input|output|records|cache`, `--top N`
+- **系列**: `--dense` — 時系列の歯抜けをゼロコストのバケットで埋め、日次/時次/週次/月次を
+  連続させる（時間次元の単一 `--group-by` のみ）
 - **ビュー**: `--breakdown`（キャッシュ read/write 内訳）, `--summary`（期間統計）, `--compare`（前期間比）, `--json`
 
 ### 分析の例
@@ -92,6 +94,7 @@ claude-usage-lens verify
 ```sh
 claude-usage-lens report --group-by month                    # 月次コスト推移
 claude-usage-lens report --group-by project --sort cost --top 5   # コスト上位ドライバー
+claude-usage-lens report --since 7d --group-by day --dense   # 連続した日次系列（計上ゼロの日も $0）
 claude-usage-lens report --since 7d --summary                # 日平均・ピーク・30日換算
 claude-usage-lens report --since 7d --compare                # 今週 vs 先週（Δ%）
 claude-usage-lens report --since 3d --model opus --group-by day

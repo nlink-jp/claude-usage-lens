@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/nlink-jp/claude-usage-lens/core/model"
 )
@@ -153,6 +154,78 @@ func ParseDimensions(csv string) ([]Dimension, error) {
 		dims = []Dimension{ByDay}
 	}
 	return dims, nil
+}
+
+// IsTimeDimension reports whether d buckets by time (and so has a well-defined
+// contiguous ordering that DenseTimeRows can fill).
+func IsTimeDimension(d Dimension) bool {
+	switch d {
+	case ByHour, ByDay, ByWeek, ByMonth:
+		return true
+	}
+	return false
+}
+
+// bucketKeyer returns the UTC key formatter for a time dimension plus the step
+// to advance the cursor while enumerating buckets. ok is false for non-time
+// dimensions. For week/month the step is one day and duplicate keys are folded.
+func bucketKeyer(d Dimension) (key func(time.Time) string, step time.Duration, ok bool) {
+	switch d {
+	case ByHour:
+		return func(t time.Time) string { return t.UTC().Format("2006-01-02 15h") }, time.Hour, true
+	case ByDay:
+		return func(t time.Time) string { return t.UTC().Format("2006-01-02") }, 24 * time.Hour, true
+	case ByWeek:
+		return func(t time.Time) string { y, w := t.UTC().ISOWeek(); return fmt.Sprintf("%04d-W%02d", y, w) }, 24 * time.Hour, true
+	case ByMonth:
+		return func(t time.Time) string { return t.UTC().Format("2006-01") }, 24 * time.Hour, true
+	}
+	return nil, 0, false
+}
+
+// DenseTimeRows fills the gaps in a single-time-dimension roll-up so the series
+// is contiguous: every bucket between start and end (inclusive, UTC) is present,
+// missing ones as zero-cost rows. Existing rows are preserved unchanged, and any
+// out-of-range keys already present (e.g. "unknown") are kept. The result is
+// sorted by key, matching Aggregate. For a non-time dimension, or when end is
+// before start, rows are returned unchanged.
+func DenseTimeRows(rows []Row, dim Dimension, start, end time.Time) []Row {
+	key, step, ok := bucketKeyer(dim)
+	if !ok || end.Before(start) {
+		return rows
+	}
+
+	have := make(map[string]Row, len(rows))
+	for _, r := range rows {
+		have[r.Key] = r
+	}
+
+	seen := make(map[string]bool)
+	order := make([]string, 0, len(rows))
+	for cur := start.UTC().Truncate(step); !cur.After(end); cur = cur.Add(step) {
+		if k := key(cur); !seen[k] {
+			seen[k] = true
+			order = append(order, k)
+		}
+	}
+	// Keep any existing keys the enumeration didn't cover (e.g. "unknown").
+	for _, r := range rows {
+		if !seen[r.Key] {
+			seen[r.Key] = true
+			order = append(order, r.Key)
+		}
+	}
+	sort.Strings(order)
+
+	out := make([]Row, 0, len(order))
+	for _, k := range order {
+		if r, ok := have[k]; ok {
+			out = append(out, r)
+		} else {
+			out = append(out, Row{Key: k})
+		}
+	}
+	return out
 }
 
 type unknownDimensionError struct{ name string }

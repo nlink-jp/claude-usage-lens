@@ -148,6 +148,7 @@ func runReport(args []string) error {
 	projectFilter := fs.String("project", "", "filter by project path (substring)")
 	sortBy := fs.String("sort", "", "sort rows: key|cost|input|output|records|cache")
 	top := fs.Int("top", 0, "keep only the top N rows after sorting (0 = all)")
+	dense := fs.Bool("dense", false, "fill gaps in a time series with zero-cost buckets (single time group-by)")
 	breakdown := fs.Bool("breakdown", false, "expand cache read/write columns")
 	summary := fs.Bool("summary", false, "print period summary stats instead of rows")
 	compare := fs.Bool("compare", false, "compare this period vs the preceding equal-length period (needs --since)")
@@ -225,6 +226,22 @@ func runReport(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *dense {
+		if len(dims) != 1 || !aggregate.IsTimeDimension(dims[0]) {
+			return fmt.Errorf("--dense requires a single time group-by (hour|day|week|month)")
+		}
+		start := time.Unix(sinceU, 0).UTC()
+		if sinceU == 0 {
+			start = earliestTimestamp(recs)
+		}
+		end := time.Now().UTC()
+		if untilU != 0 {
+			end = time.Unix(untilU, 0).UTC()
+		}
+		if !start.IsZero() {
+			rows = aggregate.DenseTimeRows(rows, dims[0], start, end)
+		}
+	}
 	if *sortBy != "" {
 		if err := aggregate.SortRows(rows, *sortBy); err != nil {
 			return err
@@ -239,6 +256,22 @@ func runReport(args []string) error {
 	}
 	printReport(os.Stdout, rows, *breakdown)
 	return nil
+}
+
+// earliestTimestamp returns the oldest non-zero record timestamp (UTC), or the
+// zero time if none — used to bound --dense when no --since was given.
+func earliestTimestamp(recs []model.PricedRecord) time.Time {
+	var earliest time.Time
+	for i := range recs {
+		t := recs[i].Timestamp
+		if t.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || t.Before(earliest) {
+			earliest = t
+		}
+	}
+	return earliest.UTC()
 }
 
 // applyFilters narrows records by entrypoint (exact), model (substring), and

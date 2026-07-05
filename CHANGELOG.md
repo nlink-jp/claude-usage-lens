@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `report --dense` — fill gaps in a time series with zero-cost buckets so a
+  daily/hourly/weekly/monthly series is contiguous (empty days show as $0),
+  for a single time `--group-by`. Opt-in; default output is unchanged. Enables a
+  gap-free daily chart in the GUI front-end.
+
 ## [0.2.0] - 2026-07-05
 
 Accuracy release. Cowork cost is now taken straight from its `audit.jsonl`

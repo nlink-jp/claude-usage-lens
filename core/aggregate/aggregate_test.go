@@ -141,3 +141,96 @@ func TestParseDimensions(t *testing.T) {
 		t.Errorf("empty should default to day, got %v", got)
 	}
 }
+
+func TestIsTimeDimension(t *testing.T) {
+	for _, d := range []Dimension{ByHour, ByDay, ByWeek, ByMonth} {
+		if !IsTimeDimension(d) {
+			t.Errorf("IsTimeDimension(%q) = false, want true", d)
+		}
+	}
+	for _, d := range []Dimension{BySession, ByProject, ByModel, ByEntrypoint} {
+		if IsTimeDimension(d) {
+			t.Errorf("IsTimeDimension(%q) = true, want false", d)
+		}
+	}
+}
+
+func TestDenseTimeRows_ByDay_FillsGaps(t *testing.T) {
+	rows := []Row{
+		{Key: "2026-07-01", Records: 3, CostUSD: 10},
+		{Key: "2026-07-03", Records: 1, CostUSD: 5},
+	}
+	start := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC) // truncates to 07-01
+	end := time.Date(2026, 7, 4, 23, 0, 0, 0, time.UTC)
+	got := DenseTimeRows(rows, ByDay, start, end)
+
+	wantKeys := []string{"2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04"}
+	if len(got) != len(wantKeys) {
+		t.Fatalf("got %d rows, want %d: %+v", len(got), len(wantKeys), got)
+	}
+	for i, k := range wantKeys {
+		if got[i].Key != k {
+			t.Fatalf("row %d key = %q, want %q", i, got[i].Key, k)
+		}
+	}
+	// Existing rows preserved.
+	if got[0].CostUSD != 10 || got[2].CostUSD != 5 {
+		t.Fatalf("existing rows not preserved: %+v", got)
+	}
+	// Filled rows are zero-cost, zero-record.
+	if got[1].CostUSD != 0 || got[1].Records != 0 || got[3].CostUSD != 0 {
+		t.Fatalf("gap rows not zero: %+v", []Row{got[1], got[3]})
+	}
+}
+
+func TestDenseTimeRows_PreservesUnknown(t *testing.T) {
+	rows := []Row{
+		{Key: "2026-07-02", CostUSD: 1},
+		{Key: "unknown", CostUSD: 9},
+	}
+	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	got := DenseTimeRows(rows, ByDay, start, end)
+
+	// Expect 07-01 (zero), 07-02 (kept), unknown (kept, sorted last).
+	if len(got) != 3 {
+		t.Fatalf("got %d rows, want 3: %+v", len(got), got)
+	}
+	if got[2].Key != "unknown" || got[2].CostUSD != 9 {
+		t.Fatalf("unknown row not preserved/last: %+v", got)
+	}
+}
+
+func TestDenseTimeRows_NonTimeDimension_Unchanged(t *testing.T) {
+	rows := []Row{{Key: "claude-opus-4-8", CostUSD: 3}}
+	got := DenseTimeRows(rows, ByModel, time.Now().UTC().Add(-time.Hour), time.Now().UTC())
+	if len(got) != 1 || got[0].Key != "claude-opus-4-8" {
+		t.Fatalf("non-time dim should be unchanged, got %+v", got)
+	}
+}
+
+func TestDenseTimeRows_EndBeforeStart_Unchanged(t *testing.T) {
+	rows := []Row{{Key: "2026-07-02", CostUSD: 1}}
+	start := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	got := DenseTimeRows(rows, ByDay, start, end)
+	if len(got) != 1 {
+		t.Fatalf("end<start should be unchanged, got %+v", got)
+	}
+}
+
+func TestDenseTimeRows_ByHour(t *testing.T) {
+	rows := []Row{{Key: "2026-07-05 09h", CostUSD: 2}}
+	start := time.Date(2026, 7, 5, 9, 30, 0, 0, time.UTC) // truncates to 09h
+	end := time.Date(2026, 7, 5, 11, 0, 0, 0, time.UTC)
+	got := DenseTimeRows(rows, ByHour, start, end)
+	want := []string{"2026-07-05 09h", "2026-07-05 10h", "2026-07-05 11h"}
+	if len(got) != 3 {
+		t.Fatalf("got %d rows, want 3: %+v", len(got), got)
+	}
+	for i, k := range want {
+		if got[i].Key != k {
+			t.Fatalf("row %d = %q, want %q", i, got[i].Key, k)
+		}
+	}
+}

@@ -87,6 +87,8 @@ claude-usage-lens verify
 - **Group by**: `--group-by hour|day|week|month|session|project|model|entrypoint` (comma-separated)
 - **Filter**: `--source code|cowork|all`, `--entrypoint`, `--model` (substring), `--project` (substring)
 - **Sort/limit**: `--sort key|cost|input|output|records|cache`, `--top N`
+- **Series**: `--dense` — fill gaps in a time series with zero-cost buckets, so a
+  daily/hourly/weekly/monthly series is contiguous (single time `--group-by`)
 - **Views**: `--breakdown` (cache read/write split), `--summary` (period stats), `--compare` (vs preceding period), `--json`
 
 ### Analysis examples
@@ -94,6 +96,7 @@ claude-usage-lens verify
 ```sh
 claude-usage-lens report --group-by month                    # monthly cost trend
 claude-usage-lens report --group-by project --sort cost --top 5   # top cost drivers
+claude-usage-lens report --since 7d --group-by day --dense   # contiguous daily series (empty days as $0)
 claude-usage-lens report --since 7d --summary                # daily avg, peak, 30d projection
 claude-usage-lens report --since 7d --compare                # this week vs last week (Δ%)
 claude-usage-lens report --since 3d --model opus --group-by day
