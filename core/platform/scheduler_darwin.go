@@ -20,10 +20,19 @@ func plistPath() (string, error) {
 }
 
 func daemonLogPath() string {
-	if d, err := dataDir(); err == nil {
-		return filepath.Join(d, "daemon.log")
+	d, err := dataDir()
+	return resolveDaemonLogPath(d, err)
+}
+
+// resolveDaemonLogPath picks the daemon log location. It prefers the per-user
+// data dir; the fallback uses os.TempDir() (on macOS the per-user $TMPDIR under
+// /var/folders) rather than the world-writable, sticky /tmp, which would be open
+// to a symlink/pre-creation race on a shared machine. Pure for testability.
+func resolveDaemonLogPath(dataDir string, dataDirErr error) string {
+	if dataDirErr == nil && dataDir != "" {
+		return filepath.Join(dataDir, "daemon.log")
 	}
-	return "/tmp/claude-usage-lens-daemon.log"
+	return filepath.Join(os.TempDir(), "claude-usage-lens-daemon.log")
 }
 
 func renderDaemonConfig(binPath string, intervalSec int) (string, error) {
