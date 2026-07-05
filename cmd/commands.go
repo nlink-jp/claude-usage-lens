@@ -140,19 +140,21 @@ func runReport(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	since := fs.String("since", "", `start of range (2026-07-01 | 7d | today)`)
 	until := fs.String("until", "", "end of range (inclusive date)")
-	groupBy := fs.String("group-by", "day", "day|session|project|model|entrypoint (comma-separated)")
+	groupBy := fs.String("group-by", "day", "hour|day|week|month|session|project|model|entrypoint (comma-separated)")
 	source := fs.String("source", "all", "code|cowork|all")
-	entrypoint := fs.String("entrypoint", "", "filter: cli|claude-desktop|sdk-py")
+	entrypoint := fs.String("entrypoint", "", "filter by entrypoint (cli|claude-desktop|sdk-py|local-agent)")
+	modelFilter := fs.String("model", "", "filter by model id (substring)")
+	projectFilter := fs.String("project", "", "filter by project path (substring)")
+	sortBy := fs.String("sort", "", "sort rows: key|cost|input|output|records|cache")
+	top := fs.Int("top", 0, "keep only the top N rows after sorting (0 = all)")
 	breakdown := fs.Bool("breakdown", false, "expand cache read/write columns")
+	summary := fs.Bool("summary", false, "print period summary stats instead of rows")
+	compare := fs.Bool("compare", false, "compare this period vs the preceding equal-length period (needs --since)")
 	asJSON := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	dims, err := aggregate.ParseDimensions(*groupBy)
-	if err != nil {
-		return err
-	}
 	sinceU, err := parseSince(*since)
 	if err != nil {
 		return err
@@ -172,16 +174,63 @@ func runReport(args []string) error {
 	}
 	defer st.Close()
 
-	recs, err := st.Query(store.Filter{Since: sinceU, Until: untilU, Source: src})
+	load := func(sinceU, untilU int64) ([]model.PricedRecord, error) {
+		recs, err := st.Query(store.Filter{Since: sinceU, Until: untilU, Source: src})
+		if err != nil {
+			return nil, err
+		}
+		return applyFilters(recs, *entrypoint, *modelFilter, *projectFilter), nil
+	}
+
+	recs, err := load(sinceU, untilU)
 	if err != nil {
 		return err
 	}
-	if *entrypoint != "" {
-		recs = filterEntrypoint(recs, *entrypoint)
+
+	switch {
+	case *compare:
+		if sinceU == 0 {
+			return fmt.Errorf("--compare requires --since")
+		}
+		until := untilU
+		if until == 0 {
+			until = time.Now().Unix()
+		}
+		span := until - sinceU
+		prev, err := load(sinceU-span, sinceU)
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return printJSON(buildComparison(recs, prev))
+		}
+		printComparison(os.Stdout, recs, prev)
+		return nil
+
+	case *summary:
+		s := aggregate.Summarize(recs)
+		if *asJSON {
+			return printJSON(s)
+		}
+		printSummary(os.Stdout, s)
+		return nil
+	}
+
+	dims, err := aggregate.ParseDimensions(*groupBy)
+	if err != nil {
+		return err
 	}
 	rows, err := aggregate.Aggregate(recs, dims)
 	if err != nil {
 		return err
+	}
+	if *sortBy != "" {
+		if err := aggregate.SortRows(rows, *sortBy); err != nil {
+			return err
+		}
+	}
+	if *top > 0 && *top < len(rows) {
+		rows = rows[:*top]
 	}
 
 	if *asJSON {
@@ -191,14 +240,94 @@ func runReport(args []string) error {
 	return nil
 }
 
-func filterEntrypoint(recs []model.PricedRecord, ep string) []model.PricedRecord {
+// applyFilters narrows records by entrypoint (exact), model (substring), and
+// project (substring). Empty filters are no-ops.
+func applyFilters(recs []model.PricedRecord, ep, mdl, project string) []model.PricedRecord {
+	if ep == "" && mdl == "" && project == "" {
+		return recs
+	}
 	out := make([]model.PricedRecord, 0, len(recs))
 	for _, r := range recs {
-		if string(r.Entrypoint) == ep {
-			out = append(out, r)
+		if ep != "" && string(r.Entrypoint) != ep {
+			continue
 		}
+		if mdl != "" && !strings.Contains(r.Model, mdl) {
+			continue
+		}
+		if project != "" && !strings.Contains(r.Project, project) {
+			continue
+		}
+		out = append(out, r)
 	}
 	return out
+}
+
+func printSummary(w io.Writer, s aggregate.Summary) {
+	period := "(no dated records)"
+	if s.FirstDay != "" {
+		period = s.FirstDay + " → " + s.LastDay
+	}
+	fmt.Fprintf(w, "period:  %s  (%d active days)\n", period, s.ActiveDays)
+	fmt.Fprintf(w, "records: %d    tokens: in %d / out %d / cache %d\n", s.Records, s.InputTokens, s.OutputTokens, s.CacheTokens)
+	fmt.Fprintf(w, "total:   $%.2f    daily avg: $%.2f\n", s.TotalUSD, s.DailyAvgUSD)
+	if s.PeakDay != "" {
+		fmt.Fprintf(w, "peak:    %s $%.2f    projection(30d): $%.2f\n", s.PeakDay, s.PeakUSD, s.Projection30USD)
+	}
+	fmt.Fprintln(w, "\nCosts are an API list-price EQUIVALENT (notional), not an actual bill.")
+}
+
+// periodTotals is the cross-record sum used by --compare.
+type periodTotals struct {
+	Records      int     `json:"records"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CacheTokens  int64   `json:"cache_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
+func totalsOf(recs []model.PricedRecord) periodTotals {
+	var t periodTotals
+	for _, r := range recs {
+		t.Records++
+		t.InputTokens += r.Usage.InputTokens
+		t.OutputTokens += r.Usage.OutputTokens
+		t.CacheTokens += r.Usage.CacheReadInputTokens + r.Usage.CacheCreation1h + r.Usage.CacheCreation5m
+		t.CostUSD += r.Cost.ListPriceUSD
+	}
+	return t
+}
+
+type comparison struct {
+	Current  periodTotals `json:"current"`
+	Previous periodTotals `json:"previous"`
+}
+
+func buildComparison(cur, prev []model.PricedRecord) comparison {
+	return comparison{Current: totalsOf(cur), Previous: totalsOf(prev)}
+}
+
+func printComparison(w io.Writer, cur, prev []model.PricedRecord) {
+	c, p := totalsOf(cur), totalsOf(prev)
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "METRIC\tCURRENT\tPREVIOUS\tDELTA\tDELTA%")
+	row := func(name string, cur, prev float64, money bool) {
+		d := cur - prev
+		pct := "—"
+		if prev != 0 {
+			pct = fmt.Sprintf("%+.1f%%", d/prev*100)
+		}
+		if money {
+			fmt.Fprintf(tw, "%s\t$%.2f\t$%.2f\t%+.2f\t%s\n", name, cur, prev, d, pct)
+		} else {
+			fmt.Fprintf(tw, "%s\t%.0f\t%.0f\t%+.0f\t%s\n", name, cur, prev, d, pct)
+		}
+	}
+	row("cost(USD)", c.CostUSD, p.CostUSD, true)
+	row("input", float64(c.InputTokens), float64(p.InputTokens), false)
+	row("output", float64(c.OutputTokens), float64(p.OutputTokens), false)
+	row("records", float64(c.Records), float64(p.Records), false)
+	tw.Flush()
+	fmt.Fprintln(w, "\ncurrent vs. the preceding equal-length period. Costs are notional.")
 }
 
 func printReport(w io.Writer, rows []aggregate.Row, breakdown bool) {

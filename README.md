@@ -42,8 +42,22 @@ claude-usage-lens watch      [Phase 2] Continuously ingest in near-real-time
 claude-usage-lens version    Print the version
 ```
 
-`report` flags: `--since`, `--until`, `--group-by day|session|project|model|entrypoint`,
-`--source code|cowork|all`, `--entrypoint cli|claude-desktop|sdk-py`, `--breakdown`, `--json`.
+`report` flags:
+- **Period**: `--since` (`2026-07-01` | `7d` | `today`), `--until`
+- **Group by**: `--group-by hour|day|week|month|session|project|model|entrypoint` (comma-separated)
+- **Filter**: `--source code|cowork|all`, `--entrypoint`, `--model` (substring), `--project` (substring)
+- **Sort/limit**: `--sort key|cost|input|output|records|cache`, `--top N`
+- **Views**: `--breakdown` (cache read/write split), `--summary` (period stats), `--compare` (vs preceding period), `--json`
+
+### Analysis examples
+
+```sh
+claude-usage-lens report --group-by month                    # monthly cost trend
+claude-usage-lens report --group-by project --sort cost --top 5   # top cost drivers
+claude-usage-lens report --since 7d --summary                # daily avg, peak, 30d projection
+claude-usage-lens report --since 7d --compare                # this week vs last week (Δ%)
+claude-usage-lens report --since 3d --model opus --group-by day
+```
 
 ### doctor
 

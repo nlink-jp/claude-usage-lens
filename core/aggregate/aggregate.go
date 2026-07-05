@@ -2,6 +2,7 @@
 package aggregate
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -12,7 +13,10 @@ import (
 type Dimension string
 
 const (
+	ByHour       Dimension = "hour"
 	ByDay        Dimension = "day"
+	ByWeek       Dimension = "week"
+	ByMonth      Dimension = "month"
 	BySession    Dimension = "session"
 	ByProject    Dimension = "project"
 	ByModel      Dimension = "model"
@@ -81,11 +85,27 @@ func keyFor(r *model.PricedRecord, dims []Dimension) string {
 
 func dimValue(r *model.PricedRecord, d Dimension) string {
 	switch d {
+	case ByHour:
+		if r.Timestamp.IsZero() {
+			return "unknown"
+		}
+		return r.Timestamp.UTC().Format("2006-01-02 15h")
 	case ByDay:
 		if r.Timestamp.IsZero() {
 			return "unknown"
 		}
 		return r.Timestamp.UTC().Format("2006-01-02")
+	case ByWeek:
+		if r.Timestamp.IsZero() {
+			return "unknown"
+		}
+		y, w := r.Timestamp.UTC().ISOWeek()
+		return fmt.Sprintf("%04d-W%02d", y, w)
+	case ByMonth:
+		if r.Timestamp.IsZero() {
+			return "unknown"
+		}
+		return r.Timestamp.UTC().Format("2006-01")
 	case BySession:
 		return orUnknown(r.SessionID)
 	case ByProject:
@@ -113,7 +133,8 @@ func ParseDimensions(csv string) ([]Dimension, error) {
 		return []Dimension{ByDay}, nil
 	}
 	valid := map[string]Dimension{
-		"day": ByDay, "session": BySession, "project": ByProject,
+		"hour": ByHour, "day": ByDay, "week": ByWeek, "month": ByMonth,
+		"session": BySession, "project": ByProject,
 		"model": ByModel, "entrypoint": ByEntrypoint,
 	}
 	var dims []Dimension
@@ -137,5 +158,79 @@ func ParseDimensions(csv string) ([]Dimension, error) {
 type unknownDimensionError struct{ name string }
 
 func (e *unknownDimensionError) Error() string {
-	return "unknown group-by dimension: " + e.name + " (want day|session|project|model|entrypoint)"
+	return "unknown group-by dimension: " + e.name + " (want hour|day|week|month|session|project|model|entrypoint)"
+}
+
+// SortRows orders rows in place. "key" (default) sorts ascending by key; a
+// metric name (cost|input|output|records|cache) sorts descending so the biggest
+// contributors come first. An unknown key returns an error.
+func SortRows(rows []Row, by string) error {
+	switch by {
+	case "", "key":
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
+	case "cost":
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].CostUSD > rows[j].CostUSD })
+	case "input":
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].InputTokens > rows[j].InputTokens })
+	case "output":
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].OutputTokens > rows[j].OutputTokens })
+	case "records":
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].Records > rows[j].Records })
+	case "cache":
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].CacheTokens > rows[j].CacheTokens })
+	default:
+		return fmt.Errorf("unknown --sort %q (want key|cost|input|output|records|cache)", by)
+	}
+	return nil
+}
+
+// Summary is a period-level roll-up used by `report --summary`.
+type Summary struct {
+	FirstDay        string  `json:"first_day"`
+	LastDay         string  `json:"last_day"`
+	ActiveDays      int     `json:"active_days"`
+	Records         int     `json:"records"`
+	InputTokens     int64   `json:"input_tokens"`
+	OutputTokens    int64   `json:"output_tokens"`
+	CacheTokens     int64   `json:"cache_tokens"`
+	TotalUSD        float64 `json:"total_usd"`
+	DailyAvgUSD     float64 `json:"daily_avg_usd"`
+	PeakDay         string  `json:"peak_day"`
+	PeakUSD         float64 `json:"peak_usd"`
+	Projection30USD float64 `json:"projection_30d_usd"`
+}
+
+// Summarize computes period statistics from priced records. Totals include every
+// record; day-based metrics (active days, peak, projection) ignore records with
+// no timestamp (bucketed as "unknown"). The 30-day projection is the average
+// cost per active day × 30.
+func Summarize(recs []model.PricedRecord) Summary {
+	dayRows, _ := Aggregate(recs, []Dimension{ByDay})
+	var s Summary
+	for _, r := range dayRows {
+		s.Records += r.Records
+		s.InputTokens += r.InputTokens
+		s.OutputTokens += r.OutputTokens
+		s.CacheTokens += r.CacheTokens
+		s.TotalUSD += r.CostUSD
+		if r.Key == "unknown" {
+			continue
+		}
+		s.ActiveDays++
+		if s.FirstDay == "" || r.Key < s.FirstDay {
+			s.FirstDay = r.Key
+		}
+		if r.Key > s.LastDay {
+			s.LastDay = r.Key
+		}
+		if r.CostUSD > s.PeakUSD {
+			s.PeakUSD = r.CostUSD
+			s.PeakDay = r.Key
+		}
+	}
+	if s.ActiveDays > 0 {
+		s.DailyAvgUSD = s.TotalUSD / float64(s.ActiveDays)
+		s.Projection30USD = s.DailyAvgUSD * 30
+	}
+	return s
 }

@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (analysis features)
+- `report` time granularity: `--group-by hour|week|month` (in addition to day).
+- `report --sort key|cost|input|output|records|cache` + `--top N`.
+- `report --summary` — period stats: active days, daily average, peak day, and
+  a 30-day cost projection.
+- `report --compare` — this period vs the preceding equal-length period (Δ, Δ%).
+- `report --model` / `--project` substring filters.
+
 ### Added (Phase 1 — working pipeline)
 - `pricing.Default()` — current per-model rates (2026-07-05) with cache/tier
   multipliers; `Lookup` normalizes dated snapshot IDs (e.g. `-20251001`).
