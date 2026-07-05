@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-05
+
 ### Changed
 - **Day boundaries and `today` now use the local timezone by default** (previously
   UTC). A user in, say, JST now sees "today" reset at their local midnight instead
