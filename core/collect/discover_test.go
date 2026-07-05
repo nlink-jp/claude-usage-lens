@@ -1,6 +1,46 @@
 package collect
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+func TestDiscover_ScanCapAborts(t *testing.T) {
+	orig := maxEntriesScanned
+	maxEntriesScanned = 3 // force the safety net on a small tree
+	defer func() { maxEntriesScanned = orig }()
+
+	root := t.TempDir()
+	for i := range 10 {
+		if err := os.WriteFile(filepath.Join(root, "s"+strconv.Itoa(i)+".jsonl"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Discover(root, ""); err == nil {
+		t.Fatal("expected an error when the scan cap is exceeded")
+	} else if !strings.Contains(err.Error(), "aborting scan") {
+		t.Errorf("error should explain the abort, got: %v", err)
+	}
+}
+
+func TestDiscover_UnderCapKeepsJSONL(t *testing.T) {
+	root := t.TempDir()
+	for _, n := range []string{"a.jsonl", "b.jsonl", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, n), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := Discover(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d discovered, want 2 (only .jsonl)", len(got))
+	}
+}
 
 func TestIsCoworkTranscript(t *testing.T) {
 	// Real cowork path shapes. The encoded-cwd dir can END in "-outputs"

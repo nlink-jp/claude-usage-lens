@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -8,6 +9,13 @@ import (
 
 	"github.com/nlink-jp/claude-usage-lens/core/model"
 )
+
+// maxEntriesScanned bounds how many filesystem entries Discover will visit, as a
+// safety net against a source root accidentally set to a filesystem root (which
+// would otherwise walk the whole disk). It's far above any real usage (session
+// files number in the thousands); exceeding it is treated as a misconfiguration
+// and surfaced as an error, never a silent truncation. A var so tests can lower it.
+var maxEntriesScanned = 1_000_000
 
 // Discovered is one located transcript file with its provenance.
 type Discovered struct {
@@ -27,6 +35,7 @@ type Discovered struct {
 // deliberately excluded.
 func Discover(codeRoot, coworkRoot string) ([]Discovered, error) {
 	var out []Discovered
+	var scanned int
 
 	walk := func(root string, src model.Source, keep func(path string) bool) error {
 		if root == "" {
@@ -38,6 +47,10 @@ func Discover(codeRoot, coworkRoot string) ([]Discovered, error) {
 		return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil // tolerate unreadable subtrees
+			}
+			scanned++
+			if scanned > maxEntriesScanned {
+				return fmt.Errorf("aborting scan of %q after %d entries — is the source root misconfigured (e.g. set to a filesystem root)? narrow it via config [sources] or --source-root", root, maxEntriesScanned)
 			}
 			if d.IsDir() {
 				return nil
