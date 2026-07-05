@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-05
+
+Accuracy release. Cowork cost is now taken straight from its `audit.jsonl`
+(exact — including internal helper calls the transcript omits); web search is
+priced; and the rate table is verified against Anthropic's live pricing (no
+long-context premium). **Migration: delete `usage.db` once** so Cowork rows
+re-ingest from audit.
+
 ### Fixed
 - Web-search cost is now priced at $0.01/request ($10 per 1,000 searches, per
   Anthropic's pricing) instead of $0. This closes the last reconstruction gap —
@@ -105,5 +113,6 @@ and `verify` against Cowork's own audit ground truth.
 - Windows / Linux support is **experimental** — source paths are inferred and
   unverified on real hardware.
 
-[Unreleased]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/nlink-jp/claude-usage-lens/releases/tag/v0.2.0
 [0.1.0]: https://github.com/nlink-jp/claude-usage-lens/releases/tag/v0.1.0
