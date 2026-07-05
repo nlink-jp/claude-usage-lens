@@ -1,12 +1,38 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/nlink-jp/claude-usage-lens/core/model"
 )
+
+func TestStore_FilePermissions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	path := filepath.Join(dir, "usage.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	di, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := di.Mode().Perm(); perm != dirPerms {
+		t.Errorf("data dir perms = %o, want %o", perm, dirPerms)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := fi.Mode().Perm(); perm != dbFilePerms {
+		t.Errorf("db file perms = %o, want %o", perm, dbFilePerms)
+	}
+}
 
 func priced(id, mdl string, in, out int64, usd float64, ts time.Time) model.PricedRecord {
 	return model.PricedRecord{

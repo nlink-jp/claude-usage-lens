@@ -82,13 +82,24 @@ type sqliteStore struct {
 	db *sql.DB
 }
 
+// Store file permissions. The DB holds metadata (project paths, timestamps) that
+// is personal, so it's kept owner-only: the data dir is 0700 (which also shields
+// the WAL/SHM sidecars) and the DB file is 0600.
+const (
+	dirPerms    os.FileMode = 0o700
+	dbFilePerms os.FileMode = 0o600
+)
+
 // Open opens (creating if absent) the SQLite store at path, enabling WAL mode
 // and creating the schema.
 func Open(path string) (Store, error) {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, dirPerms); err != nil {
 			return nil, err
 		}
+		// Tighten an already-existing data dir too (MkdirAll leaves its perms
+		// untouched) so the WAL/SHM sidecars aren't exposed. Best-effort.
+		_ = os.Chmod(dir, dirPerms)
 	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -107,6 +118,11 @@ func Open(path string) (Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
+	}
+	// Tighten the DB file to owner-only (SQLite creates it under the umask).
+	// Best-effort and only for a real on-disk file (skips ":memory:").
+	if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
+		_ = os.Chmod(path, dbFilePerms)
 	}
 	return &sqliteStore{db: db}, nil
 }
