@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Web-search cost is now priced at $0.01/request ($10 per 1,000 searches, per
+  Anthropic's pricing) instead of $0. This closes the last reconstruction gap —
+  e.g. a session's haiku cost that looked ~25% high was exactly its 52 web
+  searches. (Web fetch remains free.) Re-price existing rows by rebuilding the
+  store (`rm usage.db`); impact on `code` is small (web search is usually absent).
+
+### Verified
+- Pricing checked against Anthropic's live pricing page (2026-07-05): **no
+  long-context premium** — all current models include the 1M context window at
+  standard per-token pricing, so the flat per-model table and the `[1m]`→base
+  normalization are correct (confirmed empirically: `claude-opus-4-8[1m]`
+  reconstructs at exactly $5/$25). Cache multipliers (5m 1.25× / 1h 2× /
+  read 0.1×) and base rates all match.
+
 ### Changed
 - **Cowork cost is now exact.** `ingest` sources Cowork cost straight from its
   `audit.jsonl` (Anthropic's `total_cost_usd` / `modelUsage`) instead of computing

@@ -39,10 +39,12 @@ const (
 	cacheWrite1hMult = 2.00
 )
 
+// webSearchPerReq is Anthropic's web-search charge: $10 per 1,000 searches =
+// $0.01 per request, the same for every model. Web fetch has no extra charge.
+const webSearchPerReq = 0.01
+
 // rates builds a Rates from base input/output prices, applying the standard
-// cache multipliers. Web server-tool per-request prices default to 0 — set them
-// via config.toml [pricing] if you bill for web_search / web_fetch (the current
-// published per-request rate isn't modeled here to avoid baking a stale number).
+// cache multipliers and the flat web-search per-request charge.
 func rates(input, output float64) Rates {
 	return Rates{
 		InputPerMTok:           input,
@@ -50,14 +52,22 @@ func rates(input, output float64) Rates {
 		CacheReadMultiplier:    cacheReadMult,
 		CacheWrite1hMultiplier: cacheWrite1hMult,
 		CacheWrite5mMultiplier: cacheWrite5mMult,
+		WebSearchPerReq:        webSearchPerReq,
+		// WebFetchPerReq stays 0 — web fetch has no additional charge.
 	}
 }
 
 // Default returns the built-in rate table.
 //
-// Prices are USD per 1M tokens, current as of 2026-07-05 (source: Anthropic
-// published pricing). Override or extend via config.toml [pricing]. Unknown
-// models (including "<synthetic>") are absent by design → zero cost.
+// Prices are USD per 1M tokens, verified 2026-07-05 against Anthropic's live
+// pricing page. Override or extend via config.toml [pricing]. Unknown models
+// (including "<synthetic>") are absent by design → zero cost.
+//
+// No long-context tier: the pricing page states Fable 5, Opus 4.8/4.7/4.6,
+// Sonnet 5, and Sonnet 4.6 include the full 1M context window at standard
+// pricing — a 900k-token request costs the same per token as a 9k one. So a flat
+// per-model rate is correct, and the "[1m]" variant tag is priced as the base
+// model (confirmed empirically: claude-opus-4-8[1m] reconstructs at exactly $5/$25).
 //
 // Note: claude-sonnet-5 has an introductory $2/$10 rate through 2026-08-31; the
 // durable $3/$15 is baked here. Override in config if you want intro-rate costing.

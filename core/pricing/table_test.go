@@ -26,6 +26,9 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		if r.CacheReadMultiplier != 0.10 || r.CacheWrite5mMultiplier != 1.25 || r.CacheWrite1hMultiplier != 2.00 {
 			t.Errorf("%s: unexpected cache multipliers: %+v", c.model, r)
 		}
+		if r.WebSearchPerReq != 0.01 || r.WebFetchPerReq != 0 {
+			t.Errorf("%s: web tool rates wrong: search=%v fetch=%v (want 0.01 / 0)", c.model, r.WebSearchPerReq, r.WebFetchPerReq)
+		}
 	}
 }
 
