@@ -82,6 +82,9 @@ claude-usage-lens verify
 
 `report` フラグ:
 - **期間**: `--since`（`2026-07-01` | `7d` | `today`）, `--until`
+- **タイムゾーン**: `--tz local|utc|<IANA>`（既定 **local**）— `today`・`--since`/`--until`・
+  日/時/週/月の区切りに使う TZ。保存タイムスタンプは絶対時刻のままで、区切りだけが変わります。
+  旧来の UTC 挙動は `--tz utc`（例: 異なる TZ のマシンを跨いだ集計）。
 - **グループ化**: `--group-by hour|day|week|month|session|project|model|entrypoint`（カンマ区切り）
 - **フィルタ**: `--source code|cowork|all`, `--entrypoint`, `--model`（部分一致）, `--project`（部分一致）
 - **ソート/上位**: `--sort key|cost|input|output|records|cache`, `--top N`

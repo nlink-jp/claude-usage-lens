@@ -25,7 +25,7 @@ func TestAggregate_ByModel(t *testing.T) {
 		rec("claude-opus-4-8", day, 200, 60, 2.0),
 		rec("claude-haiku-4-5", day, 10, 5, 0.1),
 	}
-	rows, err := Aggregate(recs, []Dimension{ByModel})
+	rows, err := Aggregate(recs, []Dimension{ByModel}, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestAggregate_MultiDimAndDay(t *testing.T) {
 		rec("claude-opus-4-8", d1, 1, 1, 0.1),
 		rec("claude-opus-4-8", d2, 1, 1, 0.1),
 	}
-	rows, err := Aggregate(recs, []Dimension{ByDay, ByModel})
+	rows, err := Aggregate(recs, []Dimension{ByDay, ByModel}, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +73,11 @@ func TestAggregate_WeekAndMonth(t *testing.T) {
 		rec("claude-opus-4-8", time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC), 1, 1, 0.1),
 		rec("claude-opus-4-8", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), 1, 1, 0.2),
 	}
-	wk, _ := Aggregate(recs, []Dimension{ByWeek})
+	wk, _ := Aggregate(recs, []Dimension{ByWeek}, time.UTC)
 	if len(wk) != 2 || wk[0].Key != "2026-W27" {
 		t.Errorf("week bucket wrong: %+v", wk)
 	}
-	mo, _ := Aggregate(recs, []Dimension{ByMonth})
+	mo, _ := Aggregate(recs, []Dimension{ByMonth}, time.UTC)
 	if len(mo) != 2 || mo[0].Key != "2026-07" || mo[1].Key != "2026-08" {
 		t.Errorf("month bucket wrong: %+v", mo)
 	}
@@ -114,7 +114,7 @@ func TestSummarize(t *testing.T) {
 		rec("claude-opus-4-8", d1, 10, 10, 100.0), // 7/4 total 200
 		rec("claude-opus-4-8", d2, 10, 10, 40.0),  // 7/5 total 40
 	}
-	s := Summarize(recs)
+	s := Summarize(recs, time.UTC)
 	if s.ActiveDays != 2 || s.FirstDay != "2026-07-04" || s.LastDay != "2026-07-05" {
 		t.Errorf("period wrong: %+v", s)
 	}
@@ -162,7 +162,7 @@ func TestDenseTimeRows_ByDay_FillsGaps(t *testing.T) {
 	}
 	start := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC) // truncates to 07-01
 	end := time.Date(2026, 7, 4, 23, 0, 0, 0, time.UTC)
-	got := DenseTimeRows(rows, ByDay, start, end)
+	got := DenseTimeRows(rows, ByDay, start, end, time.UTC)
 
 	wantKeys := []string{"2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04"}
 	if len(got) != len(wantKeys) {
@@ -190,7 +190,7 @@ func TestDenseTimeRows_PreservesUnknown(t *testing.T) {
 	}
 	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
-	got := DenseTimeRows(rows, ByDay, start, end)
+	got := DenseTimeRows(rows, ByDay, start, end, time.UTC)
 
 	// Expect 07-01 (zero), 07-02 (kept), unknown (kept, sorted last).
 	if len(got) != 3 {
@@ -203,7 +203,7 @@ func TestDenseTimeRows_PreservesUnknown(t *testing.T) {
 
 func TestDenseTimeRows_NonTimeDimension_Unchanged(t *testing.T) {
 	rows := []Row{{Key: "claude-opus-4-8", CostUSD: 3}}
-	got := DenseTimeRows(rows, ByModel, time.Now().UTC().Add(-time.Hour), time.Now().UTC())
+	got := DenseTimeRows(rows, ByModel, time.Now().UTC().Add(-time.Hour), time.Now().UTC(), time.UTC)
 	if len(got) != 1 || got[0].Key != "claude-opus-4-8" {
 		t.Fatalf("non-time dim should be unchanged, got %+v", got)
 	}
@@ -213,7 +213,7 @@ func TestDenseTimeRows_EndBeforeStart_Unchanged(t *testing.T) {
 	rows := []Row{{Key: "2026-07-02", CostUSD: 1}}
 	start := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	got := DenseTimeRows(rows, ByDay, start, end)
+	got := DenseTimeRows(rows, ByDay, start, end, time.UTC)
 	if len(got) != 1 {
 		t.Fatalf("end<start should be unchanged, got %+v", got)
 	}
@@ -223,7 +223,7 @@ func TestDenseTimeRows_ByHour(t *testing.T) {
 	rows := []Row{{Key: "2026-07-05 09h", CostUSD: 2}}
 	start := time.Date(2026, 7, 5, 9, 30, 0, 0, time.UTC) // truncates to 09h
 	end := time.Date(2026, 7, 5, 11, 0, 0, 0, time.UTC)
-	got := DenseTimeRows(rows, ByHour, start, end)
+	got := DenseTimeRows(rows, ByHour, start, end, time.UTC)
 	want := []string{"2026-07-05 09h", "2026-07-05 10h", "2026-07-05 11h"}
 	if len(got) != 3 {
 		t.Fatalf("got %d rows, want 3: %+v", len(got), got)
@@ -232,5 +232,42 @@ func TestDenseTimeRows_ByHour(t *testing.T) {
 		if got[i].Key != k {
 			t.Fatalf("row %d = %q, want %q", i, got[i].Key, k)
 		}
+	}
+}
+
+func TestAggregate_TimezoneBuckets(t *testing.T) {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skip("tzdata unavailable:", err)
+	}
+	// 2026-07-05 22:00 UTC == 2026-07-06 07:00 JST → different day buckets.
+	ts := time.Date(2026, 7, 5, 22, 0, 0, 0, time.UTC)
+	recs := []model.PricedRecord{rec("claude-opus-4-8", ts, 1, 1, 1.0)}
+
+	utc, _ := Aggregate(recs, []Dimension{ByDay}, time.UTC)
+	if len(utc) != 1 || utc[0].Key != "2026-07-05" {
+		t.Errorf("UTC day = %+v, want 2026-07-05", utc)
+	}
+	jst, _ := Aggregate(recs, []Dimension{ByDay}, tokyo)
+	if len(jst) != 1 || jst[0].Key != "2026-07-06" {
+		t.Errorf("JST day = %+v, want 2026-07-06", jst)
+	}
+}
+
+func TestDenseTimeRows_LocalDays(t *testing.T) {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skip("tzdata unavailable:", err)
+	}
+	// 07-05 12:00 UTC = 07-05 21:00 JST; 07-06 12:00 UTC = 07-06 21:00 JST
+	// → JST days 07-05 and 07-06; the 07-05 gap is filled.
+	start := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	got := DenseTimeRows([]Row{{Key: "2026-07-06", CostUSD: 1}}, ByDay, start, end, tokyo)
+	if len(got) != 2 || got[0].Key != "2026-07-05" || got[1].Key != "2026-07-06" {
+		t.Fatalf("JST dense days = %+v, want [2026-07-05(zero) 2026-07-06]", got)
+	}
+	if got[0].CostUSD != 0 || got[1].CostUSD != 1 {
+		t.Fatalf("JST dense values wrong: %+v", got)
 	}
 }

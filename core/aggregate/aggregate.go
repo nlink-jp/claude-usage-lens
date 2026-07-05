@@ -39,15 +39,16 @@ type Row struct {
 // Aggregate groups priced records by the given dimensions and sums tokens/cost.
 // The composite key joins each dimension's value with "|". Rows are returned
 // sorted by key. Pure function — it takes already-priced records, so it has no
-// dependency on pricing or I/O. Passing no dimensions groups by day.
-func Aggregate(recs []model.PricedRecord, dims []Dimension) ([]Row, error) {
+// dependency on pricing or I/O. Passing no dimensions groups by day. Time
+// dimensions (hour/day/week/month) are bucketed in loc, the caller's timezone.
+func Aggregate(recs []model.PricedRecord, dims []Dimension, loc *time.Location) ([]Row, error) {
 	if len(dims) == 0 {
 		dims = []Dimension{ByDay}
 	}
 	byKey := make(map[string]*Row)
 	for i := range recs {
 		r := &recs[i]
-		key := keyFor(r, dims)
+		key := keyFor(r, dims, loc)
 		row := byKey[key]
 		if row == nil {
 			row = &Row{Key: key}
@@ -76,37 +77,37 @@ func Aggregate(recs []model.PricedRecord, dims []Dimension) ([]Row, error) {
 	return out, nil
 }
 
-func keyFor(r *model.PricedRecord, dims []Dimension) string {
+func keyFor(r *model.PricedRecord, dims []Dimension, loc *time.Location) string {
 	parts := make([]string, len(dims))
 	for i, d := range dims {
-		parts[i] = dimValue(r, d)
+		parts[i] = dimValue(r, d, loc)
 	}
 	return strings.Join(parts, "|")
 }
 
-func dimValue(r *model.PricedRecord, d Dimension) string {
+func dimValue(r *model.PricedRecord, d Dimension, loc *time.Location) string {
 	switch d {
 	case ByHour:
 		if r.Timestamp.IsZero() {
 			return "unknown"
 		}
-		return r.Timestamp.UTC().Format("2006-01-02 15h")
+		return r.Timestamp.In(loc).Format("2006-01-02 15h")
 	case ByDay:
 		if r.Timestamp.IsZero() {
 			return "unknown"
 		}
-		return r.Timestamp.UTC().Format("2006-01-02")
+		return r.Timestamp.In(loc).Format("2006-01-02")
 	case ByWeek:
 		if r.Timestamp.IsZero() {
 			return "unknown"
 		}
-		y, w := r.Timestamp.UTC().ISOWeek()
+		y, w := r.Timestamp.In(loc).ISOWeek()
 		return fmt.Sprintf("%04d-W%02d", y, w)
 	case ByMonth:
 		if r.Timestamp.IsZero() {
 			return "unknown"
 		}
-		return r.Timestamp.UTC().Format("2006-01")
+		return r.Timestamp.In(loc).Format("2006-01")
 	case BySession:
 		return orUnknown(r.SessionID)
 	case ByProject:
@@ -166,31 +167,30 @@ func IsTimeDimension(d Dimension) bool {
 	return false
 }
 
-// bucketKeyer returns the UTC key formatter for a time dimension plus the step
-// to advance the cursor while enumerating buckets. ok is false for non-time
-// dimensions. For week/month the step is one day and duplicate keys are folded.
-func bucketKeyer(d Dimension) (key func(time.Time) string, step time.Duration, ok bool) {
+// timeKeyer returns the key formatter for a time dimension, bucketed in loc.
+// ok is false for non-time dimensions.
+func timeKeyer(d Dimension, loc *time.Location) (key func(time.Time) string, ok bool) {
 	switch d {
 	case ByHour:
-		return func(t time.Time) string { return t.UTC().Format("2006-01-02 15h") }, time.Hour, true
+		return func(t time.Time) string { return t.In(loc).Format("2006-01-02 15h") }, true
 	case ByDay:
-		return func(t time.Time) string { return t.UTC().Format("2006-01-02") }, 24 * time.Hour, true
+		return func(t time.Time) string { return t.In(loc).Format("2006-01-02") }, true
 	case ByWeek:
-		return func(t time.Time) string { y, w := t.UTC().ISOWeek(); return fmt.Sprintf("%04d-W%02d", y, w) }, 24 * time.Hour, true
+		return func(t time.Time) string { y, w := t.In(loc).ISOWeek(); return fmt.Sprintf("%04d-W%02d", y, w) }, true
 	case ByMonth:
-		return func(t time.Time) string { return t.UTC().Format("2006-01") }, 24 * time.Hour, true
+		return func(t time.Time) string { return t.In(loc).Format("2006-01") }, true
 	}
-	return nil, 0, false
+	return nil, false
 }
 
 // DenseTimeRows fills the gaps in a single-time-dimension roll-up so the series
-// is contiguous: every bucket between start and end (inclusive, UTC) is present,
-// missing ones as zero-cost rows. Existing rows are preserved unchanged, and any
-// out-of-range keys already present (e.g. "unknown") are kept. The result is
+// is contiguous: every bucket between start and end (inclusive) is present in
+// loc, missing ones as zero-cost rows. Existing rows are preserved unchanged, and
+// any out-of-range keys already present (e.g. "unknown") are kept. The result is
 // sorted by key, matching Aggregate. For a non-time dimension, or when end is
 // before start, rows are returned unchanged.
-func DenseTimeRows(rows []Row, dim Dimension, start, end time.Time) []Row {
-	key, step, ok := bucketKeyer(dim)
+func DenseTimeRows(rows []Row, dim Dimension, start, end time.Time, loc *time.Location) []Row {
+	key, ok := timeKeyer(dim, loc)
 	if !ok || end.Before(start) {
 		return rows
 	}
@@ -200,13 +200,27 @@ func DenseTimeRows(rows []Row, dim Dimension, start, end time.Time) []Row {
 		have[r.Key] = r
 	}
 
+	// Enumerate buckets in loc, aligned to the local hour/day boundary. AddDate
+	// handles DST correctly (each step lands on the next local midnight).
+	s := start.In(loc)
+	var cur time.Time
+	var advance func(time.Time) time.Time
+	if dim == ByHour {
+		cur = time.Date(s.Year(), s.Month(), s.Day(), s.Hour(), 0, 0, 0, loc)
+		advance = func(t time.Time) time.Time { return t.Add(time.Hour) }
+	} else {
+		cur = time.Date(s.Year(), s.Month(), s.Day(), 0, 0, 0, 0, loc)
+		advance = func(t time.Time) time.Time { return t.AddDate(0, 0, 1) }
+	}
+
 	seen := make(map[string]bool)
 	order := make([]string, 0, len(rows))
-	for cur := start.UTC().Truncate(step); !cur.After(end); cur = cur.Add(step) {
+	for !cur.After(end) {
 		if k := key(cur); !seen[k] {
 			seen[k] = true
 			order = append(order, k)
 		}
+		cur = advance(cur)
 	}
 	// Keep any existing keys the enumeration didn't cover (e.g. "unknown").
 	for _, r := range rows {
@@ -275,10 +289,10 @@ type Summary struct {
 
 // Summarize computes period statistics from priced records. Totals include every
 // record; day-based metrics (active days, peak, projection) ignore records with
-// no timestamp (bucketed as "unknown"). The 30-day projection is the average
-// cost per active day × 30.
-func Summarize(recs []model.PricedRecord) Summary {
-	dayRows, _ := Aggregate(recs, []Dimension{ByDay})
+// no timestamp (bucketed as "unknown"). Days are bucketed in loc. The 30-day
+// projection is the average cost per active day × 30.
+func Summarize(recs []model.PricedRecord, loc *time.Location) Summary {
+	dayRows, _ := Aggregate(recs, []Dimension{ByDay}, loc)
 	var s Summary
 	for _, r := range dayRows {
 		s.Records += r.Records

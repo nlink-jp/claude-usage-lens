@@ -54,18 +54,36 @@ func sourceValue(s string) (model.Source, error) {
 	}
 }
 
+// resolveTZ maps a --tz value to a location: "" / "local" → the machine's local
+// time, "utc" → UTC, otherwise an IANA name (e.g. "Asia/Tokyo"). Day boundaries
+// and "today" are computed in this zone; stored timestamps stay absolute (UTC).
+func resolveTZ(s string) (*time.Location, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "local":
+		return time.Local, nil
+	case "utc":
+		return time.UTC, nil
+	default:
+		loc, err := time.LoadLocation(strings.TrimSpace(s))
+		if err != nil {
+			return nil, fmt.Errorf("bad --tz %q (want local | utc | an IANA name like Asia/Tokyo)", s)
+		}
+		return loc, nil
+	}
+}
+
 // parseSince interprets an absolute date (YYYY-MM-DD), a relative "Nd", or
-// "today". Empty means unbounded (0).
-func parseSince(s string) (int64, error) {
+// "today", in loc. Empty means unbounded (0).
+func parseSince(s string, loc *time.Location) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, nil
 	}
-	now := time.Now().UTC()
+	now := time.Now().In(loc)
 	switch {
 	case s == "today":
 		y, m, d := now.Date()
-		return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Unix(), nil
+		return time.Date(y, m, d, 0, 0, 0, 0, loc).Unix(), nil
 	case strings.HasSuffix(s, "d"):
 		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
 		if err != nil {
@@ -73,7 +91,7 @@ func parseSince(s string) (int64, error) {
 		}
 		return now.AddDate(0, 0, -n).Unix(), nil
 	default:
-		t, err := time.Parse("2006-01-02", s)
+		t, err := time.ParseInLocation("2006-01-02", s, loc)
 		if err != nil {
 			return 0, fmt.Errorf("bad --since %q (want YYYY-MM-DD | Nd | today)", s)
 		}
@@ -81,16 +99,16 @@ func parseSince(s string) (int64, error) {
 	}
 }
 
-// parseUntil is like parseSince but a bare date is treated inclusively (end of day).
-func parseUntil(s string) (int64, error) {
+// parseUntil is like parseSince but a bare date is treated inclusively (end of day) in loc.
+func parseUntil(s string, loc *time.Location) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, nil
 	}
-	if t, err := time.Parse("2006-01-02", s); err == nil {
+	if t, err := time.ParseInLocation("2006-01-02", s, loc); err == nil {
 		return t.Add(24*time.Hour - time.Second).Unix(), nil
 	}
-	return parseSince(s)
+	return parseSince(s, loc)
 }
 
 // --- ingest ---
@@ -152,16 +170,21 @@ func runReport(args []string) error {
 	breakdown := fs.Bool("breakdown", false, "expand cache read/write columns")
 	summary := fs.Bool("summary", false, "print period summary stats instead of rows")
 	compare := fs.Bool("compare", false, "compare this period vs the preceding equal-length period (needs --since)")
+	tz := fs.String("tz", "local", "timezone for day boundaries / today: local | utc | an IANA name (e.g. Asia/Tokyo)")
 	asJSON := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	sinceU, err := parseSince(*since)
+	loc, err := resolveTZ(*tz)
 	if err != nil {
 		return err
 	}
-	untilU, err := parseUntil(*until)
+	sinceU, err := parseSince(*since, loc)
+	if err != nil {
+		return err
+	}
+	untilU, err := parseUntil(*until, loc)
 	if err != nil {
 		return err
 	}
@@ -210,7 +233,7 @@ func runReport(args []string) error {
 		return nil
 
 	case *summary:
-		s := aggregate.Summarize(recs)
+		s := aggregate.Summarize(recs, loc)
 		if *asJSON {
 			return printJSON(s)
 		}
@@ -222,7 +245,7 @@ func runReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	rows, err := aggregate.Aggregate(recs, dims)
+	rows, err := aggregate.Aggregate(recs, dims, loc)
 	if err != nil {
 		return err
 	}
@@ -239,7 +262,7 @@ func runReport(args []string) error {
 			end = time.Unix(untilU, 0).UTC()
 		}
 		if !start.IsZero() {
-			rows = aggregate.DenseTimeRows(rows, dims[0], start, end)
+			rows = aggregate.DenseTimeRows(rows, dims[0], start, end, loc)
 		}
 	}
 	if *sortBy != "" {
@@ -421,7 +444,8 @@ func runSessions(args []string) error {
 	if err != nil {
 		return err
 	}
-	rows, err := aggregate.Aggregate(recs, []aggregate.Dimension{aggregate.BySession})
+	// Session grouping isn't time-based, so the timezone is irrelevant here.
+	rows, err := aggregate.Aggregate(recs, []aggregate.Dimension{aggregate.BySession}, time.Local)
 	if err != nil {
 		return err
 	}

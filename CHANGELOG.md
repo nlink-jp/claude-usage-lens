@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Day boundaries and `today` now use the local timezone by default** (previously
+  UTC). A user in, say, JST now sees "today" reset at their local midnight instead
+  of 09:00. Stored timestamps are unaffected — buckets are computed at query time —
+  so no store rebuild is needed. Use `--tz utc` to restore the previous behavior.
+
+### Added
+- `report --tz local|utc|<IANA>` — choose the timezone for `today`,
+  `--since`/`--until`, and the day/hour/week/month buckets (e.g. `--tz Asia/Tokyo`).
+
 ### Docs
 - Note the Windows limitation of the store-permission hardening: UNIX modes
   (`0700`/`0600`) don't apply on Windows (Go's `chmod` only toggles read-only),

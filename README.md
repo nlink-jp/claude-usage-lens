@@ -84,6 +84,10 @@ claude-usage-lens verify
 
 `report` flags:
 - **Period**: `--since` (`2026-07-01` | `7d` | `today`), `--until`
+- **Timezone**: `--tz local|utc|<IANA>` (default **local**) — the zone for
+  `today`, `--since`/`--until`, and day/hour/week/month boundaries. Stored
+  timestamps stay absolute; only the buckets shift. Use `--tz utc` for the old
+  UTC behavior (e.g. aggregating across machines in different zones).
 - **Group by**: `--group-by hour|day|week|month|session|project|model|entrypoint` (comma-separated)
 - **Filter**: `--source code|cowork|all`, `--entrypoint`, `--model` (substring), `--project` (substring)
 - **Sort/limit**: `--sort key|cost|input|output|records|cache`, `--top N`
