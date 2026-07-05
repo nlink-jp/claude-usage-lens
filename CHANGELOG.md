@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (Phase 2 — near-real-time)
+- `watch` — poll the sources on an interval, incrementally ingest each tick, and
+  print live cost deltas; graceful Ctrl-C shutdown. (Polling, not fsnotify:
+  simpler and robust against deep, dynamically-created session trees; no new dep.)
+- `daemon install|uninstall|status` — periodic-ingest service via macOS launchd
+  (`--dry-run` previews the plist). Windows/Linux report unsupported with a
+  pointer to schedule `ingest` via the native scheduler. Per-OS via build tags in
+  `core/platform` (scheduler_darwin.go / scheduler_other.go).
+
 ### Added (validation — Phase 1 step 6)
 - `core/audit` — parse Cowork audit.jsonl ground-truth cost (result events'
   `total_cost_usd` + per-model `modelUsage`).

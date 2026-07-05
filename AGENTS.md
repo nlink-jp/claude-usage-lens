@@ -8,10 +8,15 @@ accumulate it in a durable SQLite store, and report it by day / session / projec
 / model. Personal-local scope first; designed for a future Wails GUI to reuse the
 same core.
 
-Current state: **Phase 1 complete** — `ingest`, `report` (with period analysis:
-granularity, sort/top, summary, compare), `sessions`, `models`, `verify`,
-`doctor` run end-to-end (pricing, parse, dedup, SQLite store, aggregation, audit
-cross-check, all tested). Only `watch` (near-real-time, Phase 2) remains stubbed.
+Current state: **Phase 2 complete** — every CLI command works end-to-end:
+`ingest`, `report` (period analysis), `sessions`, `models`, `verify`, `doctor`,
+`watch` (poll + incremental ingest, live deltas), `daemon` (macOS launchd). All
+core packages tested. Phase 3 = a Wails GUI over the same `core/`.
+
+`watch` uses polling (not fsnotify) — simpler and robust against deep,
+dynamically-created session trees; no new dependency. Scheduler code is per-OS
+behind build tags (`core/platform/scheduler_{darwin,other}.go`); only darwin is
+implemented (launchd) — Windows/Linux return ErrDaemonUnsupported by design.
 
 ## Build & test
 

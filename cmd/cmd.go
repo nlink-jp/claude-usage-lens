@@ -35,6 +35,8 @@ func Execute(version string) {
 		err = runDoctor(args)
 	case "watch":
 		err = runWatch(args)
+	case "daemon":
+		err = runDaemon(args)
 	case "version", "-v", "--version":
 		fmt.Printf("claude-usage-lens %s\n", version)
 		return
@@ -66,7 +68,8 @@ Commands:
   models     Show the pricing table and flag drift
   verify     Cross-check our computed cost against Cowork audit.jsonl (ground truth)
   doctor     Diagnose resolved source/store/config paths (cross-OS verification)
-  watch      [Phase 2] Continuously ingest in near-real-time
+  watch      Poll and ingest continuously, printing live cost deltas
+  daemon     Install/uninstall/status a periodic-ingest service (macOS launchd)
   version    Print the version
 
 Run 'claude-usage-lens <command> -h' for command-specific flags.

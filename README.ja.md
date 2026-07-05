@@ -5,10 +5,10 @@
 解析し、API **定価換算**のコストを計算、永続ストアに蓄積して、日次 / セッション /
 プロジェクト / モデル別に集計します。
 
-> **ステータス: Phase 1。** `ingest` / `report` / `sessions` / `models` / `doctor`
-> は end-to-end で実装済み（pricing・parse・dedup・SQLite ストア・集計）。`watch`
-> （near-realtime）は Phase 2。設計は
-> [docs/ja/claude-usage-lens-rfp.ja.md](docs/ja/claude-usage-lens-rfp.ja.md) を参照。
+> **ステータス: Phase 2。** 全 CLI コマンドが end-to-end で動作 — `ingest` /
+> `report`（期間分析）/ `sessions` / `models` / `verify` / `doctor` / `watch`
+> （near-realtime）/ `daemon`（macOS launchd）。Phase 3 は同一コア上の Wails GUI。
+> 設計は [docs/ja/claude-usage-lens-rfp.ja.md](docs/ja/claude-usage-lens-rfp.ja.md) を参照。
 
 > **コストは定価換算（notional）です。** 表示額は API **定価換算**であり、実請求額では
 > ありません。サブスク（Max/Pro）利用はトークン従量課金ではありません。
@@ -39,8 +39,28 @@ claude-usage-lens sessions   セッション一覧（トークン・コスト付
 claude-usage-lens models     単価テーブルと drift を表示
 claude-usage-lens verify     自前計算を Cowork audit.jsonl (ground truth) と突合
 claude-usage-lens doctor     解決したソース/ストア/config パスを診断
-claude-usage-lens watch      [Phase 2] near-realtime 継続取込
+claude-usage-lens watch      ポーリング継続取込・コスト差分をライブ表示
+claude-usage-lens daemon     定期取込サービスの install/uninstall/status (macOS launchd)
 claude-usage-lens version    バージョン表示
+```
+
+### ニアリアルタイム
+
+`watch` は一定間隔でソースをポーリングし、毎回増分 ingest（変更バイトのみ再読）を
+実行、新規使用量が入るたびに1行表示します:
+
+```sh
+claude-usage-lens watch --interval 5s
+# [16:55:35] +1 rec (Δ$0.38)   now: 4652 rec / $1557.44
+```
+
+ターミナルを開いていなくても store を最新に保つには、定期取込サービスを導入します
+（macOS launchd。Windows/Linux は OS スケジューラで `ingest` を登録）:
+
+```sh
+claude-usage-lens daemon install --interval 15m   # --dry-run で設定プレビュー
+claude-usage-lens daemon status
+claude-usage-lens daemon uninstall
 ```
 
 ### 精度検証

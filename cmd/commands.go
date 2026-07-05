@@ -1,16 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -24,11 +27,6 @@ import (
 	"github.com/nlink-jp/claude-usage-lens/core/pricing"
 	"github.com/nlink-jp/claude-usage-lens/core/store"
 )
-
-// notImpl reports a command that is wired but whose engine lands in a later phase.
-func notImpl(name string) error {
-	return fmt.Errorf("%s: not yet implemented (Phase 2)", name)
-}
 
 // --- shared helpers ---
 
@@ -515,14 +513,158 @@ func runVerify(args []string) error {
 	return nil
 }
 
-// --- watch (Phase 2 stub) ---
+// --- watch (near-real-time: poll + incremental ingest) ---
 
 func runWatch(args []string) error {
 	fs := flag.NewFlagSet("watch", flag.ExitOnError)
+	intervalStr := fs.String("interval", "5s", "poll interval (e.g. 5s, 30s, 2m)")
+	source := fs.String("source", "all", "code|cowork|all")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return notImpl("watch")
+	interval, err := time.ParseDuration(*intervalStr)
+	if err != nil || interval < time.Second {
+		return fmt.Errorf("bad --interval %q (min 1s)", *intervalStr)
+	}
+
+	var sources map[model.Source]bool
+	if sv, err := sourceValue(*source); err != nil {
+		return err
+	} else if sv != "" {
+		sources = map[model.Source]bool{sv: true}
+	}
+
+	roots, err := platform.SourceRoots()
+	if err != nil {
+		return err
+	}
+	host, _ := os.Hostname()
+	st, dbPath, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	tbl := pricing.Default()
+
+	// tick runs one incremental ingest and returns new-record count + current
+	// grand totals (records, cost).
+	tick := func() (newRecs, count int, total float64, err error) {
+		res, err := ingest.Run(st, roots, tbl, host, sources)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		recs, err := st.Query(store.Filter{})
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		for _, r := range recs {
+			total += r.Cost.ListPriceUSD
+		}
+		return res.NewRecords, len(recs), total, nil
+	}
+
+	stamp := func() string { return time.Now().Format("15:04:05") }
+
+	fmt.Printf("watching (interval %s, Ctrl-C to stop) → %s\n", interval, dbPath)
+	_, count, total, err := tick()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("[%s] baseline: %d records, total $%.2f\n", stamp(), count, total)
+	prevTotal := total
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("\nstopped.")
+			return nil
+		case <-ticker.C:
+			n, count, total, err := tick()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ingest error: %v\n", err)
+				continue
+			}
+			if n > 0 {
+				fmt.Printf("[%s] +%d rec (Δ$%.2f)   now: %d rec / $%.2f\n", stamp(), n, total-prevTotal, count, total)
+				prevTotal = total
+			}
+		}
+	}
+}
+
+// --- daemon (register periodic ingest with the OS scheduler) ---
+
+func runDaemon(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: claude-usage-lens daemon <install|uninstall|status> [flags]")
+	}
+	action, rest := args[0], args[1:]
+	switch action {
+	case "install":
+		fs := flag.NewFlagSet("daemon install", flag.ExitOnError)
+		intervalStr := fs.String("interval", "15m", "how often to ingest (e.g. 15m, 1h)")
+		dryRun := fs.Bool("dry-run", false, "print the service config without installing")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		interval, err := time.ParseDuration(*intervalStr)
+		if err != nil || interval < time.Minute {
+			return fmt.Errorf("bad --interval %q (min 1m)", *intervalStr)
+		}
+		bin, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if *dryRun {
+			cfg, err := platform.RenderDaemonConfig(bin, int(interval.Seconds()))
+			if err != nil {
+				return err
+			}
+			fmt.Print(cfg)
+			return nil
+		}
+		info, err := platform.InstallDaemon(bin, int(interval.Seconds()))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("installed %s daemon '%s' — runs `ingest` every %s\n  config: %s\n", info.Kind, info.Label, interval, info.ConfigPath)
+		return nil
+
+	case "uninstall":
+		info, err := platform.UninstallDaemon()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("removed daemon '%s'\n  (%s)\n", info.Label, info.ConfigPath)
+		return nil
+
+	case "status":
+		info, err := platform.DaemonStatus()
+		if err != nil {
+			return err
+		}
+		state := "not installed"
+		if info.Loaded {
+			state = "loaded (running periodically)"
+		} else if fileExists(info.ConfigPath) {
+			state = "installed but not loaded"
+		}
+		fmt.Printf("daemon '%s' (%s): %s\n  config: %s\n", info.Label, info.Kind, state, info.ConfigPath)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown daemon action %q (want install|uninstall|status)", action)
+	}
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // --- doctor (diagnoses resolved paths) ---

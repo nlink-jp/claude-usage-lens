@@ -5,10 +5,10 @@ session logs — no Console or billing API required. Parses the local JSONL
 transcripts, computes an API **list-price-equivalent** cost, accumulates it in a
 durable store, and reports it by day / session / project / model.
 
-> **Status: Phase 1.** `ingest`, `report`, `sessions`, `models`, and `doctor`
-> are implemented and working end-to-end (pricing, parse, dedup, SQLite store,
-> aggregation). `watch` (near-real-time) lands in Phase 2. See
-> [docs/en/claude-usage-lens-rfp.md](docs/en/claude-usage-lens-rfp.md) for the design.
+> **Status: Phase 2.** All CLI commands work end-to-end — `ingest`, `report`
+> (period analysis), `sessions`, `models`, `verify`, `doctor`, `watch`
+> (near-real-time), and `daemon` (macOS launchd). Phase 3 is a Wails GUI over the
+> same core. See [docs/en/claude-usage-lens-rfp.md](docs/en/claude-usage-lens-rfp.md).
 
 > **Costs are notional.** The figures are the API **list-price equivalent**, not
 > an actual bill. Subscription (Max/Pro) usage is not billed per token.
@@ -39,8 +39,29 @@ claude-usage-lens sessions   List sessions with tokens and cost
 claude-usage-lens models     Show the pricing table and flag drift
 claude-usage-lens verify     Cross-check computed cost against Cowork audit.jsonl (ground truth)
 claude-usage-lens doctor     Diagnose resolved source/store/config paths
-claude-usage-lens watch      [Phase 2] Continuously ingest in near-real-time
+claude-usage-lens watch      Poll and ingest continuously, printing live cost deltas
+claude-usage-lens daemon     Install/uninstall/status a periodic-ingest service (macOS launchd)
 claude-usage-lens version    Print the version
+```
+
+### Near-real-time
+
+`watch` polls the sources on an interval, runs an incremental ingest each tick
+(only changed bytes are re-read), and prints a line whenever new usage lands:
+
+```sh
+claude-usage-lens watch --interval 5s
+# [16:55:35] +1 rec (Δ$0.38)   now: 4652 rec / $1557.44
+```
+
+To keep the store fresh in the background without a running terminal, install a
+periodic-ingest service (macOS launchd; Windows/Linux: schedule `ingest` with
+your OS scheduler):
+
+```sh
+claude-usage-lens daemon install --interval 15m   # or --dry-run to preview the config
+claude-usage-lens daemon status
+claude-usage-lens daemon uninstall
 ```
 
 ### Accuracy
