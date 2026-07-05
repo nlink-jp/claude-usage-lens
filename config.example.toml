@@ -1,0 +1,27 @@
+# claude-usage-lens configuration (example).
+#
+# Copy to your OS config dir and edit:
+#   macOS   ~/Library/Application Support/claude-usage-lens/config.toml
+#   Linux   ~/.config/claude-usage-lens/config.toml
+#   Windows %APPDATA%\claude-usage-lens\config.toml
+#
+# Every value is OPTIONAL — sensible OS-specific defaults apply. Run
+# `claude-usage-lens doctor` to see what resolved on your machine.
+
+[sources]
+# Override the auto-detected source roots. This is the safety valve when the
+# inferred path is wrong — notably on Windows, where paths are unverified on
+# real hardware. Leave unset to use the OS default.
+# code_root   = "/custom/path/.claude/projects"
+# cowork_root = "/custom/path/Claude/local-agent-mode-sessions"
+
+# Override or extend the built-in per-model rate table.
+# Prices are USD per 1,000,000 tokens; multipliers are relative to input price.
+# [pricing.models."claude-opus-4-8"]
+# input_per_mtok            = 0.0
+# output_per_mtok           = 0.0
+# cache_read_multiplier     = 0.1
+# cache_write_1h_multiplier = 2.0
+# cache_write_5m_multiplier = 1.25
+# web_search_per_req        = 0.0
+# web_fetch_per_req         = 0.0
