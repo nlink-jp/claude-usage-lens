@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-06
+
 ### Added
 - `--since` / `--until` now accept an exact datetime — `2026-07-01T09:00`
   (`[:SS]` optional, interpreted in `--tz`) or an RFC3339 timestamp — in addition
