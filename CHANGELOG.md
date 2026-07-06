@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `--since` / `--until` now accept an exact datetime — `2026-07-01T09:00`
+  (`[:SS]` optional, interpreted in `--tz`) or an RFC3339 timestamp — in addition
+  to a bare date / `Nd` / `today`. Enables filtering from a precise instant (e.g.
+  a weekly-reset boundary), used by the GUI's weekly-budget monitor.
+
 ## [0.3.0] - 2026-07-05
 
 ### Changed

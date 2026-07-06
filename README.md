@@ -83,7 +83,7 @@ claude-usage-lens verify
 ```
 
 `report` flags:
-- **Period**: `--since` (`2026-07-01` | `7d` | `today`), `--until`
+- **Period**: `--since` (`2026-07-01` | `2026-07-01T09:00` | RFC3339 | `7d` | `today`), `--until`
 - **Timezone**: `--tz local|utc|<IANA>` (default **local**) — the zone for
   `today`, `--since`/`--until`, and day/hour/week/month boundaries. Stored
   timestamps stay absolute; only the buckets shift. Use `--tz utc` for the old

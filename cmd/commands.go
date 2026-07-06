@@ -91,15 +91,26 @@ func parseSince(s string, loc *time.Location) (int64, error) {
 		}
 		return now.AddDate(0, 0, -n).Unix(), nil
 	default:
+		// An exact instant: RFC3339 (with its own offset), or a local datetime
+		// (interpreted in loc). Enables e.g. a weekly-reset boundary.
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			return t.Unix(), nil
+		}
+		for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04"} {
+			if t, err := time.ParseInLocation(layout, s, loc); err == nil {
+				return t.Unix(), nil
+			}
+		}
 		t, err := time.ParseInLocation("2006-01-02", s, loc)
 		if err != nil {
-			return 0, fmt.Errorf("bad --since %q (want YYYY-MM-DD | Nd | today)", s)
+			return 0, fmt.Errorf("bad --since %q (want YYYY-MM-DD[THH:MM[:SS]] | RFC3339 | Nd | today)", s)
 		}
 		return t.Unix(), nil
 	}
 }
 
-// parseUntil is like parseSince but a bare date is treated inclusively (end of day) in loc.
+// parseUntil is like parseSince but a bare date is treated inclusively (end of day)
+// in loc; a datetime is exact.
 func parseUntil(s string, loc *time.Location) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {

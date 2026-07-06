@@ -81,7 +81,7 @@ claude-usage-lens verify
 ```
 
 `report` フラグ:
-- **期間**: `--since`（`2026-07-01` | `7d` | `today`）, `--until`
+- **期間**: `--since`（`2026-07-01` | `2026-07-01T09:00` | RFC3339 | `7d` | `today`）, `--until`
 - **タイムゾーン**: `--tz local|utc|<IANA>`（既定 **local**）— `today`・`--since`/`--until`・
   日/時/週/月の区切りに使う TZ。保存タイムスタンプは絶対時刻のままで、区切りだけが変わります。
   旧来の UTC 挙動は `--tz utc`（例: 異なる TZ のマシンを跨いだ集計）。

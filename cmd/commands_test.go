@@ -59,3 +59,28 @@ func TestParseSince_TodayInZone(t *testing.T) {
 		t.Errorf("today JST = %d, want local midnight %d", u, want)
 	}
 }
+
+func TestParseSince_Datetime(t *testing.T) {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skip("tzdata unavailable:", err)
+	}
+	// Local datetime interpreted in the given zone.
+	u, err := parseSince("2026-07-01T09:00", tokyo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 7, 1, 9, 0, 0, 0, tokyo).Unix(); u != want {
+		t.Errorf("datetime JST = %d, want %d", u, want)
+	}
+	// With seconds.
+	u2, _ := parseSince("2026-07-01T09:30:15", tokyo)
+	if want := time.Date(2026, 7, 1, 9, 30, 15, 0, tokyo).Unix(); u2 != want {
+		t.Errorf("datetime+sec = %d, want %d", u2, want)
+	}
+	// RFC3339 carries its own offset (Z = UTC), independent of loc.
+	u3, _ := parseSince("2026-07-01T00:00:00Z", tokyo)
+	if want := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC).Unix(); u3 != want {
+		t.Errorf("rfc3339 = %d, want %d", u3, want)
+	}
+}
