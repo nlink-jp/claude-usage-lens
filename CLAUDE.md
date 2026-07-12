@@ -26,7 +26,7 @@ and reported by day / session / project / model. Personal-local first; the reusa
 make build      # → dist/claude-usage-lens
 make test       # or: go test ./...
 make vet        # host + GOOS=windows + GOOS=linux (covers build-tagged files)
-make build-all  # cross-compile all platforms (CGO-free)
+make build-all  # cross-compile release platforms (darwin arm64 only; CGO-free)
 ```
 
 ## Key decisions

@@ -32,7 +32,7 @@ durable copy so history is never lost.
 ```sh
 make build      # → dist/claude-usage-lens   (never `go build` directly)
 make test       # go test ./...
-make build-all  # cross-compile all platforms (CGO-free, pure-Go SQLite)
+make build-all  # cross-compile release platforms (darwin arm64 only; CGO-free, pure-Go SQLite)
 ```
 
 Requires Go 1.26+. No CGO, no external services.
