@@ -9,6 +9,7 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		wantInput  float64
 		wantOutput float64
 	}{
+		{"claude-opus-5", 5, 25},
 		{"claude-opus-4-8", 5, 25},
 		{"claude-fable-5", 10, 50},
 		{"claude-sonnet-5", 3, 15},

@@ -59,11 +59,11 @@ func rates(input, output float64) Rates {
 
 // Default returns the built-in rate table.
 //
-// Prices are USD per 1M tokens, verified 2026-07-05 against Anthropic's live
+// Prices are USD per 1M tokens, verified 2026-07-26 against Anthropic's live
 // pricing page. Override or extend via config.toml [pricing]. Unknown models
 // (including "<synthetic>") are absent by design → zero cost.
 //
-// No long-context tier: the pricing page states Fable 5, Opus 4.8/4.7/4.6,
+// No long-context tier: the pricing page states Fable 5, Opus 5, Opus 4.8/4.7/4.6,
 // Sonnet 5, and Sonnet 4.6 include the full 1M context window at standard
 // pricing — a 900k-token request costs the same per token as a 9k one. So a flat
 // per-model rate is correct, and the "[1m]" variant tag is priced as the base
@@ -71,12 +71,18 @@ func rates(input, output float64) Rates {
 //
 // Note: claude-sonnet-5 has an introductory $2/$10 rate through 2026-08-31; the
 // durable $3/$15 is baked here. Override in config if you want intro-rate costing.
+//
+// Known gap: fast mode (`speed: "fast"`, Opus 5 / Opus 4.8) bills at $10/$50
+// rather than $5/$25. The transcript records it as `message.usage.speed`, but the
+// record schema does not carry it yet, so a fast-mode turn is priced at the
+// standard rate (under-counted 2×). Standard speed — the default — is exact.
 func Default() Table {
 	return Table{
 		// Fable / Mythos tier
 		"claude-fable-5":  rates(10, 50),
 		"claude-mythos-5": rates(10, 50),
 		// Opus tier
+		"claude-opus-5":   rates(5, 25),
 		"claude-opus-4-8": rates(5, 25),
 		"claude-opus-4-7": rates(5, 25),
 		"claude-opus-4-6": rates(5, 25),

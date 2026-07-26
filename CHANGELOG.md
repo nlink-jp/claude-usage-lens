@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`claude-opus-5` was priced at $0.** The model was absent from the rate table,
+  and an unknown model is costed as free by design (that is how `<synthetic>` is
+  handled), so every Opus 5 turn silently contributed nothing to reports. Added at
+  **$5 / $25** per 1M tokens (input / output), matching Opus 4.8.
+
 ## [0.4.0] - 2026-07-12
 
 ### Removed
