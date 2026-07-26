@@ -9,9 +9,9 @@ accumulate it in a durable SQLite store, and report it by day / session / projec
 same core.
 
 Current state: **Phase 2 complete** — every CLI command works end-to-end:
-`ingest`, `report` (period analysis), `sessions`, `models`, `verify`, `doctor`,
-`watch` (poll + incremental ingest, live deltas), `daemon` (macOS launchd). All
-core packages tested. Phase 3 = a Wails GUI over the same `core/`.
+`ingest`, `reprice`, `report` (period analysis), `sessions`, `models`, `verify`,
+`doctor`, `watch` (poll + incremental ingest, live deltas), `daemon` (macOS
+launchd). All core packages tested. Phase 3 = a Wails GUI over the same `core/`.
 
 `watch` uses polling (not fsnotify) — simpler and robust against deep,
 dynamically-created session trees; no new dependency. Scheduler code is per-OS
@@ -76,6 +76,17 @@ docs/{en,ja}/           RFP (canonical design)
   Overridable via `[sources]` / `--source-root`; `doctor` verifies resolution.
 - **Prices are not hardcoded from memory** — fetch current published prices (see
   `/claude-api`) when populating `pricing.Default()`.
+- **A model missing from the table costs $0, silently** — that is intended for
+  `<synthetic>` and a bug for everything else (it is how `claude-opus-5` reported
+  $0). Two guards exist, keep them working: `ingest`/`reprice` warn about billable
+  models absent from the table, and **`reprice`** recomputes stored `code` rows
+  from their token columns. Adding a model is therefore a two-step fix — update
+  `pricing.Default()`, then `reprice` — because ingest is incremental and never
+  re-reads already-consumed bytes. `reprice` must never touch `cowork` rows.
+- **Fast mode is not modeled** — `speed: "fast"` (Opus 5 / 4.8) bills $10/$50, not
+  $5/$25. The transcript carries `message.usage.speed` but `model.UsageRecord`
+  does not, so fast-mode turns are under-counted 2×. Fixing it needs a field, a
+  store column (migration), and rate-table entries.
 
 ## Testing strategy
 

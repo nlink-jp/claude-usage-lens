@@ -122,6 +122,95 @@ func TestStore_QueryFilters(t *testing.T) {
 	}
 }
 
+// coworkPriced mirrors priced() but tags the row as cowork, whose cost is
+// authoritative (from audit.jsonl) and must survive a reprice untouched.
+func coworkPriced(id, mdl string, in, out int64, usd float64, ts time.Time) model.PricedRecord {
+	r := priced(id, mdl, in, out, usd, ts)
+	r.Source = model.SourceCowork
+	return r
+}
+
+func TestStore_RepriceCode(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "usage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	t0 := time.Unix(1_770_000_000, 0).UTC()
+	if _, err := s.Upsert([]model.PricedRecord{
+		// Stored at $0 — the shape of a model that was missing from the table.
+		priced("msg_new", "claude-opus-5", 1_000_000, 0, 0, t0),
+		// Already correct: must be counted as scanned but not changed.
+		priced("msg_old", "claude-opus-4-8", 1_000_000, 0, 5, t0),
+		coworkPriced("msg_cw", "claude-opus-5", 1_000_000, 0, 99, t0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Flat $5 per 1M input tokens, whatever the model.
+	flat := func(rec model.UsageRecord) model.Cost {
+		return model.Cost{ListPriceUSD: float64(rec.Usage.InputTokens) / 1e6 * 5}
+	}
+
+	// Dry run reports the change but writes nothing.
+	res, err := s.RepriceCode(flat, true)
+	if err != nil {
+		t.Fatalf("RepriceCode(dry): %v", err)
+	}
+	if res.Scanned != 2 || res.Changed != 1 {
+		t.Errorf("dry run: scanned=%d changed=%d, want 2/1 (cowork excluded)", res.Scanned, res.Changed)
+	}
+	if res.OldTotalUSD != 5 || res.NewTotalUSD != 10 {
+		t.Errorf("dry run totals: %v → %v, want 5 → 10", res.OldTotalUSD, res.NewTotalUSD)
+	}
+	rows, err := s.Query(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if costOf(t, rows, "msg_new") != 0 {
+		t.Error("dry run must not write")
+	}
+
+	// Real run persists.
+	if _, err := s.RepriceCode(flat, false); err != nil {
+		t.Fatalf("RepriceCode: %v", err)
+	}
+	rows, err = s.Query(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := costOf(t, rows, "msg_new"); got != 5 {
+		t.Errorf("msg_new cost = %v, want 5", got)
+	}
+	if got := costOf(t, rows, "msg_old"); got != 5 {
+		t.Errorf("msg_old cost = %v, want 5 (unchanged)", got)
+	}
+	if got := costOf(t, rows, "msg_cw"); got != 99 {
+		t.Errorf("cowork cost = %v, want 99 (audit cost must not be recomputed)", got)
+	}
+
+	// Idempotent: a second pass finds nothing to change.
+	res, err = s.RepriceCode(flat, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Changed != 0 {
+		t.Errorf("second pass changed %d rows, want 0", res.Changed)
+	}
+}
+
+func costOf(t *testing.T, rows []model.PricedRecord, id string) float64 {
+	t.Helper()
+	for _, r := range rows {
+		if r.MessageID == id {
+			return r.Cost.ListPriceUSD
+		}
+	}
+	t.Fatalf("row %s not found", id)
+	return 0
+}
+
 func TestStore_IngestStateRoundTrip(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "usage.db"))
 	if err != nil {

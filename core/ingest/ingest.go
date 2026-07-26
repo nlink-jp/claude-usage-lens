@@ -29,6 +29,40 @@ type Result struct {
 	FilesChanged int
 	NewRecords   int
 	FileErrors   int
+
+	// UnknownModels counts the code records just ingested whose model is absent
+	// from the pricing table, keyed by model id. Such records are stored at $0,
+	// so surfacing them is what turns a silent under-count — a model released
+	// after this build, e.g. claude-opus-5 before it was priced — into a visible
+	// warning. Add the model to pricing.Default and run Reprice to fix history.
+	UnknownModels map[string]int
+}
+
+// RepriceResult reports a Reprice pass: the store-level totals plus any models
+// still missing from the pricing table (those rows stay at $0).
+type RepriceResult struct {
+	store.RepriceResult
+	UnknownModels map[string]int
+}
+
+// Reprice recomputes the cost of every stored `code` record against tbl, without
+// re-reading any transcript. Ingest is incremental — already-consumed bytes are
+// never revisited and Upsert is DO NOTHING — so a pricing-table change otherwise
+// applies only to future records. This applies it to the past too, in place, so
+// the store's accumulated history (which outlives the source transcripts) does
+// not have to be rebuilt from scratch.
+//
+// Cowork records are left alone: their cost comes from Anthropic's audit.jsonl
+// and is exact, not something this table can improve on.
+func Reprice(st store.Store, tbl pricing.Table, dryRun bool) (RepriceResult, error) {
+	unknown := map[string]int{}
+	sr, err := st.RepriceCode(func(rec model.UsageRecord) model.Cost {
+		if _, known := tbl.Lookup(rec.Model); !known && model.Billable(rec.Model) {
+			unknown[rec.Model]++
+		}
+		return cost.ComputeRecord(rec, tbl)
+	}, dryRun)
+	return RepriceResult{RepriceResult: sr, UnknownModels: unknown}, err
 }
 
 // Run brings the store up to date from the source roots. sources, when non-nil,
@@ -75,6 +109,12 @@ func ingestCode(st store.Store, codeRoot string, tbl pricing.Table, host string,
 		deduped := collect.Dedup(recs)
 		priced := make([]model.PricedRecord, len(deduped))
 		for i, r := range deduped {
+			if _, known := tbl.Lookup(r.Model); !known && model.Billable(r.Model) {
+				if res.UnknownModels == nil {
+					res.UnknownModels = map[string]int{}
+				}
+				res.UnknownModels[r.Model]++
+			}
 			priced[i] = model.PricedRecord{UsageRecord: r, Cost: cost.ComputeRecord(r, tbl)}
 		}
 		n, err := st.Upsert(priced)

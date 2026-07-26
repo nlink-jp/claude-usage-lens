@@ -40,6 +40,7 @@ Go 1.26+ が必要。CGO なし、外部サービス依存なし。
 
 ```
 claude-usage-lens ingest     新規/変更セッションをストアへ増分取込
+claude-usage-lens reprice    単価変更後に蓄積済み Claude Code コストを再計算
 claude-usage-lens report     蓄積データを日次/セッション/プロジェクト/モデル別に集計
 claude-usage-lens sessions   セッション一覧（トークン・コスト付き）
 claude-usage-lens models     単価テーブルと drift を表示
@@ -68,6 +69,25 @@ claude-usage-lens daemon install --interval 15m   # --dry-run で設定プレビ
 claude-usage-lens daemon status
 claude-usage-lens daemon uninstall
 ```
+
+### 単価変更のあと
+
+ingest は増分方式で、読み終えたバイトを再読しません。そのため単価テーブルの更新
+（新モデルの追加、価格改定）は **それ以降に取り込むレコードにしか効きません**。
+`reprice` はストアに保存済みのトークン数から Claude Code レコードのコストを
+再計算するので、DB を作り直さずに過去分を修正できます:
+
+```sh
+claude-usage-lens reprice --dry-run   # 変更内容だけ表示
+claude-usage-lens reprice
+```
+
+Cowork レコードは再計算しません（コストは Anthropic 公式の `total_cost_usd` で、
+こちらの単価表より正確なため）。
+
+`ingest` と `reprice` は、単価テーブルに無いモデルのレコードを検出すると警告します。
+該当レコードは **$0** で保存されているので、警告が出たら `core/pricing` にモデルを
+追加して `reprice` を実行してください。
 
 ### 精度検証
 

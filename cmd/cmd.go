@@ -27,6 +27,8 @@ func Execute(version string) {
 		err = runReport(args)
 	case "sessions":
 		err = runSessions(args)
+	case "reprice":
+		err = runReprice(args)
 	case "models":
 		err = runModels(args)
 	case "verify":
@@ -63,6 +65,7 @@ Usage:
 
 Commands:
   ingest     Incrementally load new/changed sessions into the durable store
+  reprice    Recompute stored Claude Code costs after a pricing-table change
   report     Aggregate stored usage by day / session / project / model
   sessions   List sessions with tokens and cost
   models     Show the pricing table and flag drift

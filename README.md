@@ -41,6 +41,7 @@ Requires Go 1.26+. No CGO, no external services.
 
 ```
 claude-usage-lens ingest     Incrementally load new/changed sessions into the store
+claude-usage-lens reprice    Recompute stored Claude Code costs after a pricing change
 claude-usage-lens report     Aggregate stored usage by day / session / project / model
 claude-usage-lens sessions   List sessions with tokens and cost
 claude-usage-lens models     Show the pricing table and flag drift
@@ -70,6 +71,26 @@ claude-usage-lens daemon install --interval 15m   # or --dry-run to preview the 
 claude-usage-lens daemon status
 claude-usage-lens daemon uninstall
 ```
+
+### After a pricing change
+
+Ingest is incremental — bytes already read are never revisited — so updating the
+rate table (a newly released model, a revised price) affects only records
+ingested *afterwards*. `reprice` recomputes every stored Claude Code record from
+the token counts already in the store, so history is corrected in place without
+rebuilding the database:
+
+```sh
+claude-usage-lens reprice --dry-run   # show what would change
+claude-usage-lens reprice
+```
+
+Cowork records are never repriced — their cost is Anthropic's own audited
+`total_cost_usd`, which this table cannot improve on.
+
+`ingest` and `reprice` both warn when a record's model is absent from the rate
+table. Those records are stored at **$0**, so the warning is your signal to add
+the model to `core/pricing` and rerun `reprice`.
 
 ### Accuracy
 

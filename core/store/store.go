@@ -28,12 +28,33 @@ type Store interface {
 	// Query returns priced records matching the filter, ordered by timestamp.
 	Query(f Filter) ([]model.PricedRecord, error)
 
+	// RepriceCode recomputes cost_usd for every stored `code` record using price,
+	// from the token columns already in the store — no source transcript needed.
+	// This is what makes a pricing-table change (a newly released model, a rate
+	// revision) apply to history, instead of only to records ingested afterwards:
+	// ingest is incremental, so already-read bytes are never re-priced.
+	//
+	// `cowork` rows are deliberately untouched — their cost is Anthropic's own
+	// audited total_cost_usd, not something we compute. dryRun reports what would
+	// change without writing.
+	RepriceCode(price func(model.UsageRecord) model.Cost, dryRun bool) (RepriceResult, error)
+
 	// IngestState / SetIngestState track how far each source file has been read,
 	// so ingest only consumes bytes appended since last time.
 	IngestState(path string) (offset int64, ok bool, err error)
 	SetIngestState(path string, size, mtime, offset int64) error
 
 	Close() error
+}
+
+// RepriceResult summarizes a RepriceCode pass. The USD totals cover the scanned
+// (`code`) rows only, so OldTotalUSD → NewTotalUSD is the exact effect on the
+// code-side cost; cowork totals are unaffected.
+type RepriceResult struct {
+	Scanned     int     // code rows examined
+	Changed     int     // rows whose cost differed (written unless dryRun)
+	OldTotalUSD float64 // sum of cost_usd before
+	NewTotalUSD float64 // sum of cost_usd after
 }
 
 // Filter constrains a Query. Zero values mean "unbounded".
@@ -237,6 +258,77 @@ func (s *sqliteStore) Query(f Filter) ([]model.PricedRecord, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// repriceSelect pulls exactly what Compute needs plus the current cost, for
+// `code` rows only. Cowork costs are authoritative and never recomputed.
+const repriceSelect = `SELECT message_id, model, service_tier,
+ input_tokens, output_tokens, cache_read, cache_1h, cache_5m, web_search, web_fetch, cost_usd
+ FROM usage_records WHERE source = 'code'`
+
+func (s *sqliteStore) RepriceCode(price func(model.UsageRecord) model.Cost, dryRun bool) (RepriceResult, error) {
+	var res RepriceResult
+
+	// Collect first, then write: SQLite dislikes UPDATEs issued while its own
+	// SELECT cursor is still open on the same table.
+	type change struct {
+		messageID string
+		cost      float64
+	}
+	var changes []change
+
+	rows, err := s.db.Query(repriceSelect)
+	if err != nil {
+		return res, err
+	}
+	for rows.Next() {
+		var rec model.UsageRecord
+		var old float64
+		if err := rows.Scan(
+			&rec.MessageID, &rec.Model, &rec.ServiceTier,
+			&rec.Usage.InputTokens, &rec.Usage.OutputTokens, &rec.Usage.CacheReadInputTokens,
+			&rec.Usage.CacheCreation1h, &rec.Usage.CacheCreation5m,
+			&rec.Usage.WebSearchRequests, &rec.Usage.WebFetchRequests, &old,
+		); err != nil {
+			rows.Close()
+			return res, err
+		}
+		rec.Source = model.SourceCode
+		now := price(rec).ListPriceUSD
+
+		res.Scanned++
+		res.OldTotalUSD += old
+		res.NewTotalUSD += now
+		if now != old {
+			res.Changed++
+			changes = append(changes, change{rec.MessageID, now})
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+	if dryRun || len(changes) == 0 {
+		return res, nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	stmt, err := tx.Prepare("UPDATE usage_records SET cost_usd = ? WHERE message_id = ?")
+	if err != nil {
+		tx.Rollback()
+		return res, err
+	}
+	defer stmt.Close()
+	for _, c := range changes {
+		if _, err := stmt.Exec(c.cost, c.messageID); err != nil {
+			tx.Rollback()
+			return res, err
+		}
+	}
+	return res, tx.Commit()
 }
 
 func (s *sqliteStore) IngestState(path string) (int64, bool, error) {

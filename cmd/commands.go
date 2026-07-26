@@ -161,6 +161,59 @@ func runIngest(args []string) error {
 	if res.FileErrors > 0 {
 		fmt.Printf("  file errors:   %d (skipped)\n", res.FileErrors)
 	}
+	printUnknownModels(os.Stderr, res.UnknownModels)
+	return nil
+}
+
+// printUnknownModels warns about models that carry tokens but no price. Without
+// this the records land in the store at $0 and the shortfall is invisible.
+func printUnknownModels(w io.Writer, unknown map[string]int) {
+	if len(unknown) == 0 {
+		return
+	}
+	names := make([]string, 0, len(unknown))
+	for m := range unknown {
+		names = append(names, m)
+	}
+	sort.Strings(names)
+	fmt.Fprintf(w, "\nwarning: %d model(s) are not in the pricing table — those records cost $0:\n", len(names))
+	for _, m := range names {
+		fmt.Fprintf(w, "  %-28s %d record(s)\n", m, unknown[m])
+	}
+	fmt.Fprintln(w, "Add them to core/pricing (Default) and rerun `claude-usage-lens reprice`.")
+}
+
+// --- reprice ---
+
+func runReprice(args []string) error {
+	fs := flag.NewFlagSet("reprice", flag.ExitOnError)
+	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	st, dbPath, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	res, err := ingest.Reprice(st, pricing.Default(), *dryRun)
+	if err != nil {
+		return err
+	}
+
+	verb := "repriced"
+	if *dryRun {
+		verb = "would reprice"
+	}
+	fmt.Printf("%s → %s\n", verb, dbPath)
+	fmt.Printf("  code records scanned: %d\n", res.Scanned)
+	fmt.Printf("  records changed:      %d\n", res.Changed)
+	fmt.Printf("  code cost:            $%.4f → $%.4f (Δ $%+.4f)\n",
+		res.OldTotalUSD, res.NewTotalUSD, res.NewTotalUSD-res.OldTotalUSD)
+	fmt.Println("\n(cowork records are not repriced — their cost comes from Anthropic's audit.jsonl)")
+	printUnknownModels(os.Stderr, res.UnknownModels)
 	return nil
 }
 
@@ -492,7 +545,7 @@ func runModels(args []string) error {
 		fmt.Fprintf(tw, "%s\t$%.2f\t$%.2f\t%gx\t%gx\t%gx\n", m, r.InputPerMTok, r.OutputPerMTok, r.CacheReadMultiplier, r.CacheWrite5mMultiplier, r.CacheWrite1hMultiplier)
 	}
 	tw.Flush()
-	fmt.Println("\nRates USD per 1M tokens (as of 2026-07-05). Override via config.toml [pricing].")
+	fmt.Println("\nRates USD per 1M tokens (as of 2026-07-26). Override via config.toml [pricing].")
 	return nil
 }
 

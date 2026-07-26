@@ -12,6 +12,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   handled), so every Opus 5 turn silently contributed nothing to reports. Added at
   **$5 / $25** per 1M tokens (input / output), matching Opus 4.8.
 
+### Added
+
+- **`reprice`** — recomputes the cost of stored **Claude Code** records from the
+  token counts already in the store, so a rate-table change applies to history
+  instead of only to records ingested afterwards. Ingest is incremental (consumed
+  bytes are never re-read, upsert is DO NOTHING), so before this the only remedy
+  was deleting `usage.db` — which throws away the accumulated history of sessions
+  Claude Code has since auto-deleted. `--dry-run` previews the delta. Cowork rows
+  are never repriced: their cost is Anthropic's audited `total_cost_usd`.
+- **Unpriced-model warning** on `ingest` and `reprice` — lists any billable model
+  missing from the rate table, with a record count, so a $0 shortfall is visible
+  instead of silent. `<synthetic>` is excluded (legitimately free).
+
 ## [0.4.0] - 2026-07-12
 
 ### Removed

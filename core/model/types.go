@@ -23,6 +23,18 @@ const (
 	EntrypointCowork  Entrypoint = "cowork"
 )
 
+// SyntheticModel marks a locally generated response (no API call). It is never
+// billable, so it is excluded at parse time and must not be reported as an
+// unpriced model.
+const SyntheticModel = "<synthetic>"
+
+// Billable reports whether a model id should carry a cost — i.e. whether its
+// absence from the pricing table is a gap worth warning about rather than the
+// intended zero.
+func Billable(modelID string) bool {
+	return modelID != "" && modelID != SyntheticModel
+}
+
 // Usage is the raw token breakdown extracted from one assistant message's
 // `message.usage`. All counts are absolute token counts (not deltas).
 type Usage struct {

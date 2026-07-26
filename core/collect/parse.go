@@ -102,7 +102,7 @@ func parseReader(r io.Reader, src model.Source, host string) ([]model.UsageRecor
 		if raw.Type != "assistant" || raw.Message == nil || raw.Message.Usage == nil {
 			continue
 		}
-		if raw.Message.Model == "" || raw.Message.Model == "<synthetic>" {
+		if !model.Billable(raw.Message.Model) {
 			continue
 		}
 
