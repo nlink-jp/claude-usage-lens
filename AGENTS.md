@@ -96,10 +96,19 @@ docs/{en,ja}/           RFP (canonical design)
   from their token columns. Adding a model is therefore a two-step fix — update
   `pricing.Default()`, then `reprice` — because ingest is incremental and never
   re-reads already-consumed bytes. `reprice` must never touch `cowork` rows.
-- **Fast mode is not modeled** — `speed: "fast"` (Opus 5 / 4.8) bills $10/$50, not
-  $5/$25. The transcript carries `message.usage.speed` but `model.UsageRecord`
-  does not, so fast-mode turns are under-counted 2×. Fixing it needs a field, a
-  store column (migration), and rate-table entries.
+- **Fast mode is a price tier, not a model** — `speed: "fast"` bills $10/$50 on
+  Opus 5 / 4.8 only. `Rates.Base(speed)` picks the pair and the cache multipliers
+  apply on top of it, so a fast cache read is 0.1× the *fast* input price. A
+  fast-flagged record on a model with no fast tier falls back to standard, which
+  is what the API does too (Opus 4.6 serves the request at standard rates; Opus
+  4.7 rejects it). Batch and fast are mutually exclusive at the API level, so
+  those two multipliers never stack.
+- **Schema changes need a `migrate` entry, not just a `schema` edit** —
+  `CREATE TABLE IF NOT EXISTS` leaves an existing store alone, so a new column
+  must also go in `store.addedColumns` (idempotent `ALTER TABLE`, run on every
+  `Open`). Reads of a migrated column need `COALESCE`, since old rows are NULL.
+  A migration cannot backfill from the transcripts: ingest is incremental and the
+  bytes are already consumed. `speed` is the worked example.
 
 ## Testing strategy
 

@@ -625,18 +625,24 @@ func runModels(args []string) error {
 	sort.Strings(names)
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "MODEL\tINPUT/Mtok\tOUTPUT/Mtok\tCACHE-READ\tWRITE-5m\tWRITE-1h\tSOURCE")
+	fmt.Fprintln(tw, "MODEL\tINPUT/Mtok\tOUTPUT/Mtok\tFAST-IN\tFAST-OUT\tCACHE-READ\tWRITE-5m\tWRITE-1h\tSOURCE")
 	for _, m := range names {
 		r := tbl[m]
 		src := "built-in"
 		if overridden[m] {
 			src = "config"
 		}
-		fmt.Fprintf(tw, "%s\t$%.2f\t$%.2f\t%gx\t%gx\t%gx\t%s\n", m, r.InputPerMTok, r.OutputPerMTok,
-			r.CacheReadMultiplier, r.CacheWrite5mMultiplier, r.CacheWrite1hMultiplier, src)
+		fastIn, fastOut := "—", "—"
+		if r.HasFast() {
+			fastIn = fmt.Sprintf("$%.2f", r.FastInputPerMTok)
+			fastOut = fmt.Sprintf("$%.2f", r.FastOutputPerMTok)
+		}
+		fmt.Fprintf(tw, "%s\t$%.2f\t$%.2f\t%s\t%s\t%gx\t%gx\t%gx\t%s\n", m, r.InputPerMTok, r.OutputPerMTok,
+			fastIn, fastOut, r.CacheReadMultiplier, r.CacheWrite5mMultiplier, r.CacheWrite1hMultiplier, src)
 	}
 	tw.Flush()
 	fmt.Println("\nRates USD per 1M tokens (built-in table as of 2026-07-26).")
+	fmt.Println("FAST-* is the `speed: \"fast\"` premium tier; \"—\" means the model has no fast mode.")
 	fmt.Println("Override via config.toml [pricing.models], then run `reprice` to apply to stored history.")
 	return nil
 }

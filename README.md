@@ -92,6 +92,19 @@ Cowork records are never repriced — their cost is Anthropic's own audited
 table. Those records are stored at **$0**, so the warning is your signal to add
 the model to `core/pricing` and rerun `reprice`.
 
+### Fast mode
+
+Claude Code's `/fast` toggle (Opus 5 and Opus 4.8) bills at a **$10 / $50**
+premium instead of $5 / $25, with the cache multipliers applying on top of the
+fast price. The transcript records it as `message.usage.speed`, and records are
+priced accordingly — `models` shows the fast tier per model (`—` where the model
+has none, in which case a fast-flagged record bills at the standard rate, matching
+the API's own behaviour).
+
+Records ingested before this was modeled have no stored speed and count as
+standard. Re-ingesting cannot recover it — those bytes are already consumed — so
+only turns ingested from now on are speed-accurate.
+
 ### Accuracy
 
 `verify` compares our computed notional cost against Cowork's own

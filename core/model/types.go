@@ -61,7 +61,11 @@ type UsageRecord struct {
 	Project     string // in-record cwd
 	Model       string // e.g. claude-opus-4-8; "<synthetic>" carries no cost
 	ServiceTier string // standard | priority | batch
-	Usage       Usage
+	// Speed is the transcript's message.usage.speed: "fast" for a fast-mode turn
+	// (a premium price tier on Opus 5 / 4.8), otherwise "standard". Empty means
+	// the transcript predates the field, which is equivalent to standard.
+	Speed string
+	Usage Usage
 }
 
 // Cost is a computed list-price-equivalent (notional) cost. It is the API list

@@ -12,6 +12,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   handled), so every Opus 5 turn silently contributed nothing to reports. Added at
   **$5 / $25** per 1M tokens (input / output), matching Opus 4.8.
 
+- **Fast mode was billed at standard rates.** `speed: "fast"` (Claude Code's
+  `/fast`, on Opus 5 and Opus 4.8) costs **$10 / $50** per 1M tokens rather than
+  $5 / $25, so a fast-mode turn was under-counted 2×. The transcript records it
+  as `message.usage.speed`; it is now parsed, stored, and priced, with the cache
+  multipliers applying on top of the fast base price. A fast-flagged record on a
+  model with no fast tier falls back to standard rates — what the API itself does
+  (Opus 4.6 serves such a request at standard rates; Opus 4.7 rejects it).
+
+  Records ingested before this release carry no stored speed and count as
+  standard. That cannot be backfilled — ingest is incremental and those bytes are
+  already consumed — so only newly ingested turns are speed-accurate. No fast-mode
+  usage was found in the author's local logs, so the practical impact is zero.
+
 ### Added
 
 - **`reprice`** — recomputes the cost of stored **Claude Code** records from the
@@ -42,7 +55,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `doctor` reports the config path, whether it loaded, which models you
     repriced, and which source paths differ from the OS default; an invalid
     config makes it exit non-zero.
-  - `models` gains a SOURCE column marking each row `built-in` or `config`.
+  - `models` gains a SOURCE column marking each row `built-in` or `config`,
+    plus FAST-IN / FAST-OUT columns for the fast-mode tier.
+- **Store schema migration.** `usage_records` gains a `speed` column, added in
+  place on `Open` when absent, so an existing `usage.db` keeps its accumulated
+  history instead of needing a rebuild.
 
 ## [0.4.0] - 2026-07-12
 

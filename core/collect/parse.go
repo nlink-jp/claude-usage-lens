@@ -32,6 +32,7 @@ type rawLine struct {
 			CacheReadInputTokens     int64  `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int64  `json:"cache_creation_input_tokens"`
 			ServiceTier              string `json:"service_tier"`
+			Speed                    string `json:"speed"`
 			CacheCreation            *struct {
 				Ephemeral1h int64 `json:"ephemeral_1h_input_tokens"`
 				Ephemeral5m int64 `json:"ephemeral_5m_input_tokens"`
@@ -118,6 +119,7 @@ func parseReader(r io.Reader, src model.Source, host string) ([]model.UsageRecor
 			Project:     raw.Cwd,
 			Model:       raw.Message.Model,
 			ServiceTier: u.ServiceTier,
+			Speed:       u.Speed,
 			Usage: model.Usage{
 				InputTokens:          u.InputTokens,
 				OutputTokens:         u.OutputTokens,

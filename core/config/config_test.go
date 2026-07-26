@@ -188,3 +188,38 @@ input_per_mtok = 5.0
 		t.Error("nil config should report no overrides")
 	}
 }
+
+// Fast-mode rates are overridable too, and setting them on a model with no
+// built-in fast tier is what makes that model fast-capable.
+func TestPricingTable_FastRateOverride(t *testing.T) {
+	path := write(t, `
+[pricing.models."claude-sonnet-5"]
+fast_input_per_mtok  = 6.0
+fast_output_per_mtok = 30.0
+`)
+	cfg, _, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := cfg.PricingTable(pricing.Default()).Lookup("claude-sonnet-5")
+	if !r.HasFast() {
+		t.Fatal("config should be able to add a fast tier")
+	}
+	if in, out := r.Base(pricing.SpeedFast); in != 6 || out != 30 {
+		t.Errorf("Base(fast) = %v/%v, want 6/30", in, out)
+	}
+	// The standard pair is untouched.
+	if in, _ := r.Base(pricing.SpeedStandard); in != 3 {
+		t.Errorf("Base(standard) = %v, want the built-in 3", in)
+	}
+}
+
+func TestLoad_NegativeFastRateIsAnError(t *testing.T) {
+	path := write(t, `
+[pricing.models."claude-opus-5"]
+fast_input_per_mtok = -1.0
+`)
+	if _, _, _, err := Load(path); err == nil {
+		t.Fatal("negative fast rate should be rejected")
+	}
+}

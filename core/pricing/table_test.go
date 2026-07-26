@@ -77,3 +77,53 @@ func TestTierMultiplier(t *testing.T) {
 		t.Error("standard/priority tier should be 1.0")
 	}
 }
+
+// Fast mode is a $10/$50 premium tier, offered only on Opus 5 and Opus 4.8.
+// Opus 4.7 rejects a fast request and Opus 4.6 serves it at standard rates, so
+// neither may carry fast prices.
+func TestDefaultTable_FastModeTier(t *testing.T) {
+	tbl := Default()
+
+	for _, m := range []string{"claude-opus-5", "claude-opus-4-8"} {
+		r, ok := tbl.Lookup(m)
+		if !ok {
+			t.Fatalf("%s missing from the table", m)
+		}
+		if !r.HasFast() {
+			t.Errorf("%s should offer fast mode", m)
+		}
+		if r.FastInputPerMTok != 10 || r.FastOutputPerMTok != 50 {
+			t.Errorf("%s fast rates = %v/%v, want 10/50", m, r.FastInputPerMTok, r.FastOutputPerMTok)
+		}
+		in, out := r.Base(SpeedFast)
+		if in != 10 || out != 50 {
+			t.Errorf("%s Base(fast) = %v/%v, want 10/50", m, in, out)
+		}
+		if in, out := r.Base(SpeedStandard); in != 5 || out != 25 {
+			t.Errorf("%s Base(standard) = %v/%v, want 5/25", m, in, out)
+		}
+	}
+
+	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-fable-5"} {
+		r, ok := tbl.Lookup(m)
+		if !ok {
+			t.Fatalf("%s missing from the table", m)
+		}
+		if r.HasFast() {
+			t.Errorf("%s must not have a fast tier", m)
+		}
+		// A fast-flagged record on such a model bills at standard rates.
+		in, _ := r.Base(SpeedFast)
+		if in != r.InputPerMTok {
+			t.Errorf("%s Base(fast) = %v, want the standard %v", m, in, r.InputPerMTok)
+		}
+	}
+}
+
+// The [1m] / dated-suffix normalization must preserve the fast tier.
+func TestLookup_VariantKeepsFastRates(t *testing.T) {
+	r, ok := Default().Lookup("claude-opus-5[1m]")
+	if !ok || !r.HasFast() {
+		t.Errorf("opus-5[1m] should resolve with its fast tier: %+v ok=%v", r, ok)
+	}
+}

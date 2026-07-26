@@ -68,3 +68,25 @@ func TestParseReader_CoworkEntrypointDefault(t *testing.T) {
 		t.Errorf("cowork entrypoint default not applied: %+v", recs)
 	}
 }
+
+// speed drives the fast-mode price tier, so it must survive parsing verbatim.
+// An absent field means the transcript predates fast mode, i.e. standard.
+func TestParseReader_Speed(t *testing.T) {
+	lines := []string{
+		`{"type":"assistant","message":{"id":"msg_fast","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":1,"service_tier":"standard","speed":"fast"}}}`,
+		`{"type":"assistant","message":{"id":"msg_std","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":1,"service_tier":"standard","speed":"standard"}}}`,
+		`{"type":"assistant","message":{"id":"msg_old","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":1,"service_tier":"standard"}}}`,
+	}
+	recs, err := parseReader(strings.NewReader(strings.Join(lines, "\n")), model.SourceCode, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("got %d records, want 3", len(recs))
+	}
+	for i, want := range []string{"fast", "standard", ""} {
+		if recs[i].Speed != want {
+			t.Errorf("record %d speed = %q, want %q", i, recs[i].Speed, want)
+		}
+	}
+}

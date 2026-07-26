@@ -9,11 +9,43 @@ import "strings"
 type Rates struct {
 	InputPerMTok           float64 // base input, USD / 1M tok
 	OutputPerMTok          float64 // base output, USD / 1M tok
-	CacheReadMultiplier    float64 // × InputPerMTok (typically 0.1)
-	CacheWrite1hMultiplier float64 // × InputPerMTok (typically 2.0)
-	CacheWrite5mMultiplier float64 // × InputPerMTok (typically 1.25)
+	CacheReadMultiplier    float64 // × the effective input price (typically 0.1)
+	CacheWrite1hMultiplier float64 // × the effective input price (typically 2.0)
+	CacheWrite5mMultiplier float64 // × the effective input price (typically 1.25)
 	WebSearchPerReq        float64 // USD per server web_search request
 	WebFetchPerReq         float64 // USD per server web_fetch request
+
+	// Fast-mode prices (`speed: "fast"`). Zero means the model has no fast tier,
+	// in which case a fast-flagged record is billed at the standard rates — which
+	// is also what the API does on a model that silently ignores the request.
+	FastInputPerMTok  float64
+	FastOutputPerMTok float64
+}
+
+// Speed selects which price pair applies to a record.
+const (
+	SpeedStandard = "standard"
+	SpeedFast     = "fast"
+)
+
+// Base returns the input/output prices in effect for the given speed. Fast mode
+// is a premium on the same model, so the cache multipliers apply on top of
+// whichever pair this returns — a cache read during a fast-mode turn costs
+// 0.1× the *fast* input price, not the standard one.
+//
+// An unrecognised speed, or fast on a model with no fast tier, falls back to
+// the standard pair: over-charging usage we cannot confirm would be worse than
+// reporting it at the rate the API would have billed.
+func (r Rates) Base(speed string) (input, output float64) {
+	if speed == SpeedFast && r.HasFast() {
+		return r.FastInputPerMTok, r.FastOutputPerMTok
+	}
+	return r.InputPerMTok, r.OutputPerMTok
+}
+
+// HasFast reports whether the model has a fast-mode price tier.
+func (r Rates) HasFast() bool {
+	return r.FastInputPerMTok > 0 || r.FastOutputPerMTok > 0
 }
 
 // TierMultiplier scales the whole cost by service tier.
@@ -43,6 +75,13 @@ const (
 // $0.01 per request, the same for every model. Web fetch has no extra charge.
 const webSearchPerReq = 0.01
 
+// fastInputPerMTok / fastOutputPerMTok are the fast-mode premium prices, the
+// same for every model that offers the tier.
+const (
+	fastInputPerMTok  = 10.0
+	fastOutputPerMTok = 50.0
+)
+
 // StandardRates returns a Rates for the given base input/output prices with
 // Anthropic's standard cache multipliers and web-search charge. It is the
 // starting point for a model defined purely in the user's config, so specifying
@@ -60,7 +99,15 @@ func rates(input, output float64) Rates {
 		CacheWrite5mMultiplier: cacheWrite5mMult,
 		WebSearchPerReq:        webSearchPerReq,
 		// WebFetchPerReq stays 0 — web fetch has no additional charge.
+		// Fast prices stay 0 — most models have no fast tier.
 	}
+}
+
+// withFast marks a model as fast-mode capable at the premium prices.
+func withFast(r Rates) Rates {
+	r.FastInputPerMTok = fastInputPerMTok
+	r.FastOutputPerMTok = fastOutputPerMTok
+	return r
 }
 
 // Default returns the built-in rate table.
@@ -78,18 +125,18 @@ func rates(input, output float64) Rates {
 // Note: claude-sonnet-5 has an introductory $2/$10 rate through 2026-08-31; the
 // durable $3/$15 is baked here. Override in config if you want intro-rate costing.
 //
-// Known gap: fast mode (`speed: "fast"`, Opus 5 / Opus 4.8) bills at $10/$50
-// rather than $5/$25. The transcript records it as `message.usage.speed`, but the
-// record schema does not carry it yet, so a fast-mode turn is priced at the
-// standard rate (under-counted 2×). Standard speed — the default — is exact.
+// Fast mode (`speed: "fast"`) is a $10/$50 premium tier offered on Opus 5 and
+// Opus 4.8 only. Opus 4.7 rejects the request outright and Opus 4.6 silently
+// serves it at standard speed and standard rates, so neither carries fast
+// prices here — a fast-flagged record on any other model bills as standard.
 func Default() Table {
 	return Table{
 		// Fable / Mythos tier
 		"claude-fable-5":  rates(10, 50),
 		"claude-mythos-5": rates(10, 50),
-		// Opus tier
-		"claude-opus-5":   rates(5, 25),
-		"claude-opus-4-8": rates(5, 25),
+		// Opus tier — 5 and 4.8 additionally offer fast mode.
+		"claude-opus-5":   withFast(rates(5, 25)),
+		"claude-opus-4-8": withFast(rates(5, 25)),
 		"claude-opus-4-7": rates(5, 25),
 		"claude-opus-4-6": rates(5, 25),
 		"claude-opus-4-5": rates(5, 25),

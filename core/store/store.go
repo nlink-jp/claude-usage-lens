@@ -8,6 +8,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS usage_records (
   project       TEXT,
   model         TEXT,
   service_tier  TEXT,
+  speed         TEXT,
   input_tokens  INTEGER,
   output_tokens INTEGER,
   cache_read    INTEGER,
@@ -145,6 +147,10 @@ func Open(path string) (Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	// Tighten the DB file to owner-only (SQLite creates it under the umask).
 	// Best-effort and only for a real on-disk file (skips ":memory:").
 	if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
@@ -153,10 +159,59 @@ func Open(path string) (Store, error) {
 	return &sqliteStore{db: db}, nil
 }
 
+// addedColumns are columns introduced after the first release. `CREATE TABLE IF
+// NOT EXISTS` leaves an existing table untouched, so a store created by an older
+// build would otherwise keep the old shape and every write naming a new column
+// would fail. Each entry is added only when absent, so migrate is idempotent and
+// safe to run on every Open.
+//
+// Existing rows get the zero value, which for `speed` reads as standard — the
+// truth for every record written before fast mode was modeled, since the speed
+// was simply not recorded. Re-ingesting cannot recover it either: ingest is
+// incremental and those bytes are already consumed.
+var addedColumns = []struct{ name, decl string }{
+	{"speed", "TEXT"},
+}
+
+func migrate(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(usage_records)")
+	if err != nil {
+		return err
+	}
+	existing := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid         int
+			name, ctype string
+			notNull, pk int
+			dflt        sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, c := range addedColumns {
+		if existing[c.name] {
+			continue
+		}
+		if _, err := db.Exec("ALTER TABLE usage_records ADD COLUMN " + c.name + " " + c.decl); err != nil {
+			return fmt.Errorf("add column %s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
 const upsertSQL = `INSERT INTO usage_records
- (message_id, request_id, ts, source, entrypoint, host, session_id, project, model, service_tier,
+ (message_id, request_id, ts, source, entrypoint, host, session_id, project, model, service_tier, speed,
   input_tokens, output_tokens, cache_read, cache_1h, cache_5m, web_search, web_fetch, cost_usd, ingested_at)
- VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
  ON CONFLICT(message_id) DO NOTHING`
 
 func (s *sqliteStore) Upsert(recs []model.PricedRecord) (int, error) {
@@ -189,7 +244,7 @@ func (s *sqliteStore) Upsert(recs []model.PricedRecord) (int, error) {
 		}
 		res, err := stmt.Exec(
 			key, r.RequestID, tsUnix, string(r.Source), string(r.Entrypoint), r.Host,
-			r.SessionID, r.Project, r.Model, r.ServiceTier,
+			r.SessionID, r.Project, r.Model, r.ServiceTier, r.Speed,
 			r.Usage.InputTokens, r.Usage.OutputTokens, r.Usage.CacheReadInputTokens,
 			r.Usage.CacheCreation1h, r.Usage.CacheCreation5m,
 			r.Usage.WebSearchRequests, r.Usage.WebFetchRequests, r.Cost.ListPriceUSD, now,
@@ -209,7 +264,7 @@ func (s *sqliteStore) Upsert(recs []model.PricedRecord) (int, error) {
 }
 
 const querySelect = `SELECT message_id, request_id, ts, source, entrypoint, host, session_id, project, model, service_tier,
- input_tokens, output_tokens, cache_read, cache_1h, cache_5m, web_search, web_fetch, cost_usd
+ COALESCE(speed, ''), input_tokens, output_tokens, cache_read, cache_1h, cache_5m, web_search, web_fetch, cost_usd
  FROM usage_records WHERE 1=1`
 
 func (s *sqliteStore) Query(f Filter) ([]model.PricedRecord, error) {
@@ -242,7 +297,7 @@ func (s *sqliteStore) Query(f Filter) ([]model.PricedRecord, error) {
 		var src, ep string
 		if err := rows.Scan(
 			&r.MessageID, &r.RequestID, &tsUnix, &src, &ep, &r.Host,
-			&r.SessionID, &r.Project, &r.Model, &r.ServiceTier,
+			&r.SessionID, &r.Project, &r.Model, &r.ServiceTier, &r.Speed,
 			&r.Usage.InputTokens, &r.Usage.OutputTokens, &r.Usage.CacheReadInputTokens,
 			&r.Usage.CacheCreation1h, &r.Usage.CacheCreation5m,
 			&r.Usage.WebSearchRequests, &r.Usage.WebFetchRequests, &r.Cost.ListPriceUSD,
@@ -262,7 +317,7 @@ func (s *sqliteStore) Query(f Filter) ([]model.PricedRecord, error) {
 
 // repriceSelect pulls exactly what Compute needs plus the current cost, for
 // `code` rows only. Cowork costs are authoritative and never recomputed.
-const repriceSelect = `SELECT message_id, model, service_tier,
+const repriceSelect = `SELECT message_id, model, service_tier, COALESCE(speed, ''),
  input_tokens, output_tokens, cache_read, cache_1h, cache_5m, web_search, web_fetch, cost_usd
  FROM usage_records WHERE source = 'code'`
 
@@ -285,7 +340,7 @@ func (s *sqliteStore) RepriceCode(price func(model.UsageRecord) model.Cost, dryR
 		var rec model.UsageRecord
 		var old float64
 		if err := rows.Scan(
-			&rec.MessageID, &rec.Model, &rec.ServiceTier,
+			&rec.MessageID, &rec.Model, &rec.ServiceTier, &rec.Speed,
 			&rec.Usage.InputTokens, &rec.Usage.OutputTokens, &rec.Usage.CacheReadInputTokens,
 			&rec.Usage.CacheCreation1h, &rec.Usage.CacheCreation5m,
 			&rec.Usage.WebSearchRequests, &rec.Usage.WebFetchRequests, &old,

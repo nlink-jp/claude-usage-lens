@@ -89,6 +89,18 @@ Cowork レコードは再計算しません（コストは Anthropic 公式の `
 該当レコードは **$0** で保存されているので、警告が出たら `core/pricing` にモデルを
 追加して `reprice` を実行してください。
 
+### fast mode
+
+Claude Code の `/fast`（Opus 5 / Opus 4.8）は $5/$25 ではなく **$10/$50** で課金され、
+キャッシュ倍率は fast 単価に対して適用されます。transcript の
+`message.usage.speed` を読んで対応する単価で計算します。モデル別の fast 単価は
+`models` で確認できます（`—` は fast mode 非対応。その場合 fast フラグ付き
+レコードは標準単価になり、API 自身の挙動と一致します）。
+
+対応前に取り込んだレコードには speed が保存されておらず standard 扱いになります。
+再取り込みでも復元できません（該当バイトは消費済みのため）。したがって speed が
+正確なのは今後取り込む分のみです。
+
 ### 精度検証
 
 `verify` は自前計算した定価換算コストを、Cowork の `audit.jsonl` の

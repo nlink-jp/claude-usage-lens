@@ -45,10 +45,14 @@
 # input_per_mtok  = 7.0
 # output_per_mtok = 35.0
 
-# The full set of fields, for reference:
+# The full set of fields, for reference. fast_* is the `speed: "fast"` premium
+# tier (Opus 5 / Opus 4.8); leaving both at 0 means the model has no fast mode,
+# and a fast-flagged record is then billed at the standard rate.
 # [pricing.models."claude-opus-5"]
 # input_per_mtok            = 5.0
 # output_per_mtok           = 25.0
+# fast_input_per_mtok       = 10.0
+# fast_output_per_mtok      = 50.0
 # cache_read_multiplier     = 0.1
 # cache_write_1h_multiplier = 2.0
 # cache_write_5m_multiplier = 1.25

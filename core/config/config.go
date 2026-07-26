@@ -68,6 +68,12 @@ type RateOverride struct {
 	CacheWrite5mMultiplier *float64 `toml:"cache_write_5m_multiplier"`
 	WebSearchPerReq        *float64 `toml:"web_search_per_req"`
 	WebFetchPerReq         *float64 `toml:"web_fetch_per_req"`
+
+	// Fast-mode premium prices. Setting either marks the model as fast-capable;
+	// leaving both unset on a model without a built-in fast tier means a
+	// fast-flagged record bills at the standard rate.
+	FastInputPerMTok  *float64 `toml:"fast_input_per_mtok"`
+	FastOutputPerMTok *float64 `toml:"fast_output_per_mtok"`
 }
 
 // DefaultPath returns <OS config dir>/config.toml — where `doctor` says to put it.
@@ -139,6 +145,8 @@ func (c *Config) Validate() error {
 			{"cache_write_5m_multiplier", ov.CacheWrite5mMultiplier},
 			{"web_search_per_req", ov.WebSearchPerReq},
 			{"web_fetch_per_req", ov.WebFetchPerReq},
+			{"fast_input_per_mtok", ov.FastInputPerMTok},
+			{"fast_output_per_mtok", ov.FastOutputPerMTok},
 		} {
 			if f.val != nil && *f.val < 0 {
 				return fmt.Errorf("[pricing.models.%q] %s is negative (%v)", name, f.key, *f.val)
@@ -185,6 +193,8 @@ func (c *Config) PricingTable(base pricing.Table) pricing.Table {
 		setIf(&r.CacheWrite5mMultiplier, ov.CacheWrite5mMultiplier)
 		setIf(&r.WebSearchPerReq, ov.WebSearchPerReq)
 		setIf(&r.WebFetchPerReq, ov.WebFetchPerReq)
+		setIf(&r.FastInputPerMTok, ov.FastInputPerMTok)
+		setIf(&r.FastOutputPerMTok, ov.FastOutputPerMTok)
 		out[name] = r
 	}
 	return out

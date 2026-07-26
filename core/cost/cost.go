@@ -11,27 +11,34 @@ import (
 const perMillion = 1_000_000.0
 
 // Compute returns the notional (API list-price) cost of a single usage record
-// given the model's rates and service tier.
+// given the model's rates, service tier, and speed.
 //
-// Token-type accounting:
+// speed selects the base price pair — fast mode is a premium tier on the same
+// model — and the cache multipliers then apply on top of whichever pair won, so
+// a cache read during a fast-mode turn costs 0.1× the *fast* input price.
 //
-//	input      = InputTokens          × InputPerMTok
-//	output     = OutputTokens         × OutputPerMTok
-//	cache read = CacheReadInputTokens × InputPerMTok × CacheReadMultiplier
-//	cache 1h   = CacheCreation1h      × InputPerMTok × CacheWrite1hMultiplier
-//	cache 5m   = CacheCreation5m      × InputPerMTok × CacheWrite5mMultiplier
+// Token-type accounting (`in` / `out` = the effective prices for this speed):
+//
+//	input      = InputTokens          × in
+//	output     = OutputTokens         × out
+//	cache read = CacheReadInputTokens × in × CacheReadMultiplier
+//	cache 1h   = CacheCreation1h      × in × CacheWrite1hMultiplier
+//	cache 5m   = CacheCreation5m      × in × CacheWrite5mMultiplier
 //	web tools  = requests             × per-request price
 //
 // The subtotal is scaled by the service-tier multiplier (e.g. batch = 0.5×).
-func Compute(u model.Usage, r pricing.Rates, tier string) float64 {
+// Batch and fast mode are mutually exclusive at the API level, so the two
+// modifiers never actually stack.
+func Compute(u model.Usage, r pricing.Rates, tier, speed string) float64 {
 	perTok := func(n int64, ratePerMTok float64) float64 {
 		return float64(n) / perMillion * ratePerMTok
 	}
-	subtotal := perTok(u.InputTokens, r.InputPerMTok) +
-		perTok(u.OutputTokens, r.OutputPerMTok) +
-		perTok(u.CacheReadInputTokens, r.InputPerMTok*r.CacheReadMultiplier) +
-		perTok(u.CacheCreation1h, r.InputPerMTok*r.CacheWrite1hMultiplier) +
-		perTok(u.CacheCreation5m, r.InputPerMTok*r.CacheWrite5mMultiplier) +
+	in, out := r.Base(speed)
+	subtotal := perTok(u.InputTokens, in) +
+		perTok(u.OutputTokens, out) +
+		perTok(u.CacheReadInputTokens, in*r.CacheReadMultiplier) +
+		perTok(u.CacheCreation1h, in*r.CacheWrite1hMultiplier) +
+		perTok(u.CacheCreation5m, in*r.CacheWrite5mMultiplier) +
 		float64(u.WebSearchRequests)*r.WebSearchPerReq +
 		float64(u.WebFetchRequests)*r.WebFetchPerReq
 
@@ -46,7 +53,7 @@ func ComputeRecord(rec model.UsageRecord, t pricing.Table) model.Cost {
 		return model.Cost{ListPriceUSD: 0, Tier: rec.ServiceTier}
 	}
 	return model.Cost{
-		ListPriceUSD: Compute(rec.Usage, r, rec.ServiceTier),
+		ListPriceUSD: Compute(rec.Usage, r, rec.ServiceTier, rec.Speed),
 		Tier:         rec.ServiceTier,
 	}
 }

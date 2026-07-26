@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -235,4 +236,90 @@ func TestStore_IngestStateRoundTrip(t *testing.T) {
 	if off, _, _ := s.IngestState("/some/file.jsonl"); off != 1500 {
 		t.Errorf("offset not updated: %d", off)
 	}
+}
+
+// A store created by an older build has no `speed` column. Open must add it in
+// place rather than failing every subsequent write, and the existing rows must
+// survive — the store outlives the transcripts, so losing them is unrecoverable.
+func TestStore_MigratesLegacySchemaInPlace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.db")
+
+	// Build the pre-speed schema by hand and seed a row.
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE usage_records (
+	  message_id TEXT PRIMARY KEY, request_id TEXT, ts INTEGER, source TEXT,
+	  entrypoint TEXT, host TEXT, session_id TEXT, project TEXT, model TEXT,
+	  service_tier TEXT, input_tokens INTEGER, output_tokens INTEGER,
+	  cache_read INTEGER, cache_1h INTEGER, cache_5m INTEGER, web_search INTEGER,
+	  web_fetch INTEGER, cost_usd REAL, ingested_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	// The old build always wrote every column, so the fixture does too.
+	if _, err := legacy.Exec(`INSERT INTO usage_records
+	  (message_id, request_id, ts, source, entrypoint, host, session_id, project, model,
+	   service_tier, input_tokens, output_tokens, cache_read, cache_1h, cache_5m,
+	   web_search, web_fetch, cost_usd, ingested_at)
+	  VALUES ('msg_legacy', 'req_1', 1770000000, 'code', 'cli', 'h', 'sess', '/p', 'claude-opus-4-8',
+	          'standard', 7, 3, 0, 0, 0, 0, 0, 1.5, 1770000000)`); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open on a legacy store should migrate, not fail: %v", err)
+	}
+	defer s.Close()
+
+	rows, err := s.Query(Filter{})
+	if err != nil {
+		t.Fatalf("Query after migration: %v", err)
+	}
+	if len(rows) != 1 || rows[0].MessageID != "msg_legacy" {
+		t.Fatalf("legacy row lost: %+v", rows)
+	}
+	if rows[0].Speed != "" {
+		t.Errorf("migrated row speed = %q, want empty (= standard)", rows[0].Speed)
+	}
+	if rows[0].Cost.ListPriceUSD != 1.5 || rows[0].Usage.InputTokens != 7 {
+		t.Errorf("legacy row corrupted: %+v", rows[0])
+	}
+
+	// Writes naming the new column now work.
+	t0 := time.Unix(1_770_000_100, 0).UTC()
+	rec := priced("msg_new", "claude-opus-5", 1, 1, 0.5, t0)
+	rec.Speed = "fast"
+	if _, err := s.Upsert([]model.PricedRecord{rec}); err != nil {
+		t.Fatalf("Upsert after migration: %v", err)
+	}
+	rows, _ = s.Query(Filter{})
+	if got := speedOf(t, rows, "msg_new"); got != "fast" {
+		t.Errorf("speed round-trip = %q, want fast", got)
+	}
+}
+
+// Migration runs on every Open and must be a no-op the second time.
+func TestStore_MigrationIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.db")
+	for i := range 3 {
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("Open #%d: %v", i+1, err)
+		}
+		s.Close()
+	}
+}
+
+func speedOf(t *testing.T, rows []model.PricedRecord, id string) string {
+	t.Helper()
+	for _, r := range rows {
+		if r.MessageID == id {
+			return r.Speed
+		}
+	}
+	t.Fatalf("row %s not found", id)
+	return ""
 }
