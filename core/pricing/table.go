@@ -43,6 +43,12 @@ const (
 // $0.01 per request, the same for every model. Web fetch has no extra charge.
 const webSearchPerReq = 0.01
 
+// StandardRates returns a Rates for the given base input/output prices with
+// Anthropic's standard cache multipliers and web-search charge. It is the
+// starting point for a model defined purely in the user's config, so specifying
+// only the two base prices still yields correct cache accounting.
+func StandardRates(input, output float64) Rates { return rates(input, output) }
+
 // rates builds a Rates from base input/output prices, applying the standard
 // cache multipliers and the flat web-search per-request charge.
 func rates(input, output float64) Rates {

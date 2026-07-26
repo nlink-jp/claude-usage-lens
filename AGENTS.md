@@ -36,6 +36,7 @@ main.go                 thin entry → cmd.Execute
 cmd/                    stdlib-flag CLI dispatch; doctor implemented, rest stubbed
 core/                   reusable, OS-neutral core (imported by CLI and future GUI)
   model/                types + ErrNotImplemented
+  config/               optional config.toml: [sources] + [pricing.models] [tested]
   pricing/             rate table + tier/cache multipliers (self-contained)
   cost/                 pure cost engine  [tested]
   collect/              ParseFile/ParseFrom, Discover, Dedup [tested]
@@ -73,9 +74,21 @@ docs/{en,ja}/           RFP (canonical design)
 - **Durability**: `ingest` must never delete store rows when a source file
   disappears (Claude Code auto-deletes old sessions — that's the data-loss we guard).
 - **Windows/Linux are experimental** — paths inferred, unverified on real hardware.
-  Overridable via `[sources]` / `--source-root`; `doctor` verifies resolution.
+  Overridable via `[sources]` / `--code-root` / `--cowork-root`; `doctor` verifies resolution.
 - **Prices are not hardcoded from memory** — fetch current published prices (see
   `/claude-api`) when populating `pricing.Default()`.
+- **Config: never document a setting nothing reads.** `[sources]` and
+  `[pricing.models]` were documented in `config.example.toml` and both READMEs for
+  a long time before `core/config` existed, so users could write a config file
+  that did nothing. If you add a knob to `config.example.toml`, add the field, the
+  merge rule, and a test in the same commit. Corollaries baked into the loader:
+  rate-override fields are `*float64` so a partial override inherits instead of
+  zeroing (a plain float would silently blank the cache multipliers), unknown TOML
+  keys are a hard error, and `doctor` reports whether the file loaded plus which
+  values it changed. Deviations from the RFP, deliberate: the flags are
+  `--code-root` / `--cowork-root` (one `--source-root` cannot address two distinct
+  roots), and **env-var overrides are not implemented** — flags plus the file
+  cover the safety-valve need, so a third precedence layer has no current use case.
 - **A model missing from the table costs $0, silently** — that is intended for
   `<synthetic>` and a bug for everything else (it is how `claude-opus-5` reported
   $0). Two guards exist, keep them working: `ingest`/`reprice` warn about billable

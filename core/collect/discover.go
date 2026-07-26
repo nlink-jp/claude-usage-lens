@@ -50,7 +50,7 @@ func Discover(codeRoot, coworkRoot string) ([]Discovered, error) {
 			}
 			scanned++
 			if scanned > maxEntriesScanned {
-				return fmt.Errorf("aborting scan of %q after %d entries — is the source root misconfigured (e.g. set to a filesystem root)? narrow it via config [sources] or --source-root", root, maxEntriesScanned)
+				return fmt.Errorf("aborting scan of %q after %d entries — is the source root misconfigured (e.g. set to a filesystem root)? narrow it via config [sources] or --code-root/--cowork-root", root, maxEntriesScanned)
 			}
 			if d.IsDir() {
 				return nil

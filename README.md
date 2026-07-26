@@ -5,8 +5,8 @@ session logs — no Console or billing API required. Parses the local JSONL
 transcripts, computes an API **list-price-equivalent** cost, accumulates it in a
 durable store, and reports it by day / session / project / model.
 
-> **Status: Phase 2.** All CLI commands work end-to-end — `ingest`, `report`
-> (period analysis), `sessions`, `models`, `verify`, `doctor`, `watch`
+> **Status: Phase 2.** All CLI commands work end-to-end — `ingest`, `reprice`,
+> `report` (period analysis), `sessions`, `models`, `verify`, `doctor`, `watch`
 > (near-real-time), and `daemon` (macOS launchd). Phase 3 is a Wails GUI over the
 > same core. See [docs/en/claude-usage-lens-rfp.md](docs/en/claude-usage-lens-rfp.md).
 
@@ -153,16 +153,38 @@ sources:
 
 ## Configuration
 
-Optional TOML at your OS config dir (see [config.example.toml](config.example.toml)):
-override source paths (`[sources]`) and per-model prices (`[pricing]`). All paths
-are also settable via `--source-root`.
+Everything works unconfigured — a missing config file is not an error. To
+override, drop a TOML file in your OS config dir (see
+[config.example.toml](config.example.toml) for the full schema):
+
+```toml
+[sources]                                   # when the inferred path is wrong
+code_root = "/custom/path/.claude/projects"
+
+[pricing.models."claude-sonnet-5"]          # e.g. cost at the introductory rate
+input_per_mtok  = 2.0
+output_per_mtok = 10.0
+```
+
+- **Precedence**: command-line flags > config file > built-in / OS-inferred defaults.
+- **Paths**: `[sources]`, or `--code-root` / `--cowork-root` per command.
+- **Prices**: `[pricing.models."<id>"]`. Omitted fields **inherit** — from the
+  built-in entry, or from the standard cache multipliers for a model this build
+  does not know — so a two-line override is enough. Run `reprice` afterwards to
+  apply the change to already-stored records.
+- **`--config PATH`** points at a different file.
+- **Unknown keys are an error**, not silently ignored: a typo'd setting that
+  looks like it works is worse than a loud failure.
+
+`doctor` reports the config path, whether it loaded, which prices you overrode,
+and which source paths differ from the OS defaults.
 
 ## Cross-platform
 
 macOS is first-class. **Windows / Linux are experimental** — their profile paths
 are inferred and unverified on real hardware. Path separators are handled via
 `path/filepath`; per-OS roots live behind build tags in `core/platform`. If a path
-is wrong, fix it via `[sources]` / `--source-root` and confirm with `doctor`. WSL
+is wrong, fix it via `[sources]` / `--code-root` / `--cowork-root` and confirm with `doctor`. WSL
 users should use the Linux build.
 
 **Store permissions on Windows:** the store is restricted to the owner (dir `0700`,

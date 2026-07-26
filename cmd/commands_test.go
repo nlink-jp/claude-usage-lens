@@ -3,6 +3,9 @@ package cmd
 import (
 	"testing"
 	"time"
+
+	"github.com/nlink-jp/claude-usage-lens/core/config"
+	"github.com/nlink-jp/claude-usage-lens/core/platform"
 )
 
 func TestResolveTZ(t *testing.T) {
@@ -82,5 +85,37 @@ func TestParseSince_Datetime(t *testing.T) {
 	u3, _ := parseSince("2026-07-01T00:00:00Z", tokyo)
 	if want := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC).Unix(); u3 != want {
 		t.Errorf("rfc3339 = %d, want %d", u3, want)
+	}
+}
+
+func TestResolveRoots_Precedence(t *testing.T) {
+	def := platform.Roots{CodeRoot: "/os/code", CoworkRoot: "/os/cowork"}
+	fromFile := &config.Config{Sources: config.Sources{
+		CodeRoot:   "/file/code",
+		CoworkRoot: "/file/cowork",
+	}}
+
+	// Nothing set anywhere → OS defaults.
+	if got := resolveRoots(def, &config.Config{}, "", ""); got != def {
+		t.Errorf("bare config changed the defaults: %+v", got)
+	}
+
+	// Config file beats the OS default.
+	if got := resolveRoots(def, fromFile, "", ""); got.CodeRoot != "/file/code" {
+		t.Errorf("config [sources] not applied: %+v", got)
+	}
+
+	// Flags beat the config file, per-field.
+	got := resolveRoots(def, fromFile, "/flag/code", "")
+	if got.CodeRoot != "/flag/code" {
+		t.Errorf("--code-root should win over the config file, got %q", got.CodeRoot)
+	}
+	if got.CoworkRoot != "/file/cowork" {
+		t.Errorf("unset --cowork-root should leave the config value, got %q", got.CoworkRoot)
+	}
+
+	// A blank flag is "not supplied", not "set to empty".
+	if got := resolveRoots(def, fromFile, "   ", ""); got.CodeRoot != "/file/code" {
+		t.Errorf("whitespace flag should be ignored, got %q", got.CodeRoot)
 	}
 }

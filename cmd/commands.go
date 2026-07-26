@@ -20,6 +20,7 @@ import (
 	"github.com/nlink-jp/claude-usage-lens/core/aggregate"
 	"github.com/nlink-jp/claude-usage-lens/core/audit"
 	"github.com/nlink-jp/claude-usage-lens/core/collect"
+	"github.com/nlink-jp/claude-usage-lens/core/config"
 	"github.com/nlink-jp/claude-usage-lens/core/cost"
 	"github.com/nlink-jp/claude-usage-lens/core/ingest"
 	"github.com/nlink-jp/claude-usage-lens/core/model"
@@ -39,6 +40,71 @@ func openStore() (store.Store, string, error) {
 	dbPath := filepath.Join(dataDir, "usage.db")
 	st, err := store.Open(dbPath)
 	return st, dbPath, err
+}
+
+// configFlags holds the flags every source- or price-aware command shares. They
+// are registered together so the precedence (flags > config file > OS defaults)
+// is applied identically everywhere rather than re-derived per command.
+type configFlags struct {
+	path       *string
+	codeRoot   *string
+	coworkRoot *string
+}
+
+// registerConfigFlags adds --config, and (when withRoots) the source-root
+// overrides. Commands that only read the store don't take the root flags.
+func registerConfigFlags(fs *flag.FlagSet, withRoots bool) *configFlags {
+	cf := &configFlags{
+		path: fs.String("config", "", "path to config.toml (default: the OS config dir)"),
+	}
+	if withRoots {
+		cf.codeRoot = fs.String("code-root", "", "override the Claude Code source root")
+		cf.coworkRoot = fs.String("cowork-root", "", "override the Cowork source root")
+	}
+	return cf
+}
+
+// load reads the config file named by --config (or the default location).
+// A missing file is not an error — it just means "no overrides".
+func (cf *configFlags) load() (*config.Config, error) {
+	cfg, _, _, err := config.Load(*cf.path)
+	return cfg, err
+}
+
+// roots resolves the effective source roots against the OS-inferred defaults.
+func (cf *configFlags) roots(cfg *config.Config) (platform.Roots, error) {
+	def, err := platform.SourceRoots()
+	if err != nil {
+		return def, err
+	}
+	return resolveRoots(def, cfg, deref(cf.codeRoot), deref(cf.coworkRoot)), nil
+}
+
+// resolveRoots applies the documented precedence — flags > config [sources] >
+// OS-inferred defaults. Kept pure (defaults passed in) so the precedence is
+// testable without touching the filesystem.
+func resolveRoots(def platform.Roots, cfg *config.Config, codeFlag, coworkFlag string) platform.Roots {
+	roots := cfg.Roots(def)
+	if v := strings.TrimSpace(codeFlag); v != "" {
+		roots.CodeRoot = v
+	}
+	if v := strings.TrimSpace(coworkFlag); v != "" {
+		roots.CoworkRoot = v
+	}
+	return roots
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// pricingTable returns the built-in table with the user's [pricing.models]
+// overrides applied.
+func pricingTable(cfg *config.Config) pricing.Table {
+	return cfg.PricingTable(pricing.Default())
 }
 
 func sourceValue(s string) (model.Source, error) {
@@ -127,6 +193,7 @@ func parseUntil(s string, loc *time.Location) (int64, error) {
 func runIngest(args []string) error {
 	fs := flag.NewFlagSet("ingest", flag.ExitOnError)
 	source := fs.String("source", "all", "code|cowork|all")
+	cf := registerConfigFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -138,7 +205,11 @@ func runIngest(args []string) error {
 		sources = map[model.Source]bool{sv: true}
 	}
 
-	roots, err := platform.SourceRoots()
+	cfg, err := cf.load()
+	if err != nil {
+		return err
+	}
+	roots, err := cf.roots(cfg)
 	if err != nil {
 		return err
 	}
@@ -150,7 +221,7 @@ func runIngest(args []string) error {
 	}
 	defer st.Close()
 
-	res, err := ingest.Run(st, roots, pricing.Default(), host, sources)
+	res, err := ingest.Run(st, roots, pricingTable(cfg), host, sources)
 	if err != nil {
 		return err
 	}
@@ -188,7 +259,13 @@ func printUnknownModels(w io.Writer, unknown map[string]int) {
 func runReprice(args []string) error {
 	fs := flag.NewFlagSet("reprice", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
+	cf := registerConfigFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	cfg, err := cf.load()
+	if err != nil {
 		return err
 	}
 
@@ -198,7 +275,7 @@ func runReprice(args []string) error {
 	}
 	defer st.Close()
 
-	res, err := ingest.Reprice(st, pricing.Default(), *dryRun)
+	res, err := ingest.Reprice(st, pricingTable(cfg), *dryRun)
 	if err != nil {
 		return err
 	}
@@ -525,10 +602,19 @@ func runSessions(args []string) error {
 func runModels(args []string) error {
 	fs := flag.NewFlagSet("models", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "machine-readable JSON output")
+	cf := registerConfigFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	tbl := pricing.Default()
+	cfg, err := cf.load()
+	if err != nil {
+		return err
+	}
+	tbl := pricingTable(cfg)
+	overridden := map[string]bool{}
+	for _, m := range cfg.OverriddenModels() {
+		overridden[m] = true
+	}
 	if *asJSON {
 		return printJSON(tbl)
 	}
@@ -539,13 +625,19 @@ func runModels(args []string) error {
 	sort.Strings(names)
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "MODEL\tINPUT/Mtok\tOUTPUT/Mtok\tCACHE-READ\tWRITE-5m\tWRITE-1h")
+	fmt.Fprintln(tw, "MODEL\tINPUT/Mtok\tOUTPUT/Mtok\tCACHE-READ\tWRITE-5m\tWRITE-1h\tSOURCE")
 	for _, m := range names {
 		r := tbl[m]
-		fmt.Fprintf(tw, "%s\t$%.2f\t$%.2f\t%gx\t%gx\t%gx\n", m, r.InputPerMTok, r.OutputPerMTok, r.CacheReadMultiplier, r.CacheWrite5mMultiplier, r.CacheWrite1hMultiplier)
+		src := "built-in"
+		if overridden[m] {
+			src = "config"
+		}
+		fmt.Fprintf(tw, "%s\t$%.2f\t$%.2f\t%gx\t%gx\t%gx\t%s\n", m, r.InputPerMTok, r.OutputPerMTok,
+			r.CacheReadMultiplier, r.CacheWrite5mMultiplier, r.CacheWrite1hMultiplier, src)
 	}
 	tw.Flush()
-	fmt.Println("\nRates USD per 1M tokens (as of 2026-07-26). Override via config.toml [pricing].")
+	fmt.Println("\nRates USD per 1M tokens (built-in table as of 2026-07-26).")
+	fmt.Println("Override via config.toml [pricing.models], then run `reprice` to apply to stored history.")
 	return nil
 }
 
@@ -554,11 +646,16 @@ func runModels(args []string) error {
 func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "machine-readable JSON output")
+	cf := registerConfigFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	roots, err := platform.SourceRoots()
+	cfg, err := cf.load()
+	if err != nil {
+		return err
+	}
+	roots, err := cf.roots(cfg)
 	if err != nil {
 		return err
 	}
@@ -570,7 +667,7 @@ func runVerify(args []string) error {
 		return fmt.Errorf("no Cowork audit.jsonl found under %s (verify needs Cowork data)", roots.CoworkRoot)
 	}
 
-	tbl := pricing.Default()
+	tbl := pricingTable(cfg)
 	host, _ := os.Hostname()
 
 	type vrow struct {
@@ -643,6 +740,7 @@ func runWatch(args []string) error {
 	fs := flag.NewFlagSet("watch", flag.ExitOnError)
 	intervalStr := fs.String("interval", "5s", "poll interval (e.g. 5s, 30s, 2m)")
 	source := fs.String("source", "all", "code|cowork|all")
+	cf := registerConfigFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -658,7 +756,11 @@ func runWatch(args []string) error {
 		sources = map[model.Source]bool{sv: true}
 	}
 
-	roots, err := platform.SourceRoots()
+	cfg, err := cf.load()
+	if err != nil {
+		return err
+	}
+	roots, err := cf.roots(cfg)
 	if err != nil {
 		return err
 	}
@@ -668,7 +770,7 @@ func runWatch(args []string) error {
 		return err
 	}
 	defer st.Close()
-	tbl := pricing.Default()
+	tbl := pricingTable(cfg)
 
 	// tick runs one incremental ingest and returns new-record count + current
 	// grand totals (records, cost).
@@ -795,28 +897,54 @@ func fileExists(p string) bool {
 
 func runDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	cf := registerConfigFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	roots, err := platform.SourceRoots()
+	// Report the config before anything else: if it fails to parse, that is the
+	// finding, and every path below would be the un-overridden default anyway.
+	cfg, cfgPath, cfgFound, cfgErr := config.Load(*cf.path)
+	defaults, err := platform.SourceRoots()
 	if err != nil {
 		return err
 	}
-	cfg, _ := platform.ConfigDir()
+	roots, err := cf.roots(cfg)
+	if err != nil {
+		return err
+	}
 	data, _ := platform.DataDir()
 
 	fmt.Printf("claude-usage-lens doctor (%s/%s)\n\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Println("sources:")
-	reportDir("code", roots.CodeRoot)
-	reportDir("cowork", roots.CoworkRoot)
-	fmt.Printf("\nconfig: %s\n", cfg)
-	fmt.Printf("data:   %s\n", data)
-	fmt.Println("\n(paths are overridable via config [sources] / --source-root)")
-	return nil
+
+	fmt.Printf("config: %s\n", cfgPath)
+	switch {
+	case cfgErr != nil:
+		fmt.Printf("  [INVALID] %v\n", cfgErr)
+	case !cfgFound:
+		fmt.Println("  [absent ] using built-in defaults (every setting is optional)")
+	default:
+		fmt.Println("  [loaded ]")
+		if models := cfg.OverriddenModels(); len(models) > 0 {
+			fmt.Printf("  price overrides: %s\n", strings.Join(models, ", "))
+		}
+	}
+
+	fmt.Println("\nsources:")
+	reportDir("code", roots.CodeRoot, defaults.CodeRoot)
+	reportDir("cowork", roots.CoworkRoot, defaults.CoworkRoot)
+	fmt.Printf("\ndata:   %s\n", data)
+	fmt.Println("\n(source paths are overridable via config [sources] and --code-root / --cowork-root)")
+
+	// A broken config is a failure, not a note — exit non-zero so a scripted
+	// health check catches it.
+	return cfgErr
 }
 
-func reportDir(label, dir string) {
+// reportDir prints the effective directory and, when it differs from the
+// OS-inferred default, says so — otherwise an override that silently failed to
+// apply is indistinguishable from one that worked.
+func reportDir(label, dir, osDefault string) {
 	status := "MISSING"
 	entries := 0
 	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
@@ -826,6 +954,9 @@ func reportDir(label, dir string) {
 		}
 	}
 	fmt.Printf("  %-7s [%-7s] %s\n", label, status, dir)
+	if dir != osDefault {
+		fmt.Printf("           overridden (OS default: %s)\n", osDefault)
+	}
 	if status == "ok" {
 		fmt.Printf("           %d top-level entr%s\n", entries, plural(entries))
 	}

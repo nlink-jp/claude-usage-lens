@@ -9,7 +9,7 @@ import (
 
 // NOTE: whether the Claude desktop app / Cowork exists on Linux is unconfirmed;
 // the Cowork root defaults under XDG data. The Claude Code root (~/.claude) is
-// high-confidence. Override via config [sources] / --source-root as needed.
+// high-confidence. Override via config [sources] / --code-root / --cowork-root as needed.
 
 func xdgDataHome() (string, error) {
 	if v := os.Getenv("XDG_DATA_HOME"); v != "" {

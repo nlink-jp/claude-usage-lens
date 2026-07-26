@@ -24,6 +24,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Unpriced-model warning** on `ingest` and `reprice` — lists any billable model
   missing from the rate table, with a record count, so a $0 shortfall is visible
   instead of silent. `<synthetic>` is excluded (legitimately free).
+- **`config.toml` is now actually read** (`core/config`). `[sources]` and
+  `[pricing.models]` had been documented in `config.example.toml`, both READMEs,
+  the `models` footer and `doctor` output since the first release, but no code
+  parsed the file — a user config silently did nothing. Now:
+  - `[sources] code_root / cowork_root` override the OS-inferred source roots,
+    as do the new `--code-root` / `--cowork-root` flags.
+  - `[pricing.models."<id>"]` overrides or adds rate-table entries. Every field
+    is optional and **inherits** when omitted (from the built-in entry, or from
+    the standard cache multipliers for an unknown model), so overriding one price
+    cannot silently zero the rest of the entry.
+  - `--config PATH` selects a different file; precedence is flags > file >
+    built-in defaults.
+  - **Unknown keys are rejected** with an error naming them, and negative rates
+    are rejected — a typo that looks like it works is the failure this file is
+    supposed to prevent.
+  - `doctor` reports the config path, whether it loaded, which models you
+    repriced, and which source paths differ from the OS default; an invalid
+    config makes it exit non-zero.
+  - `models` gains a SOURCE column marking each row `built-in` or `config`.
 
 ## [0.4.0] - 2026-07-12
 

@@ -15,7 +15,7 @@ type Roots struct {
 }
 
 // SourceRoots returns the OS-specific default source roots. These are only
-// defaults — the user can override them via config [sources] / --source-root,
+// defaults — the user can override them via config [sources] / --code-root / --cowork-root,
 // which is the safety valve for environments where the inference is wrong
 // (notably Windows, where paths are unverified on real hardware).
 func SourceRoots() (Roots, error) { return sourceRoots() }

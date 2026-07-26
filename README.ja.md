@@ -6,7 +6,7 @@
 プロジェクト / モデル別に集計します。
 
 > **ステータス: Phase 2。** 全 CLI コマンドが end-to-end で動作 — `ingest` /
-> `report`（期間分析）/ `sessions` / `models` / `verify` / `doctor` / `watch`
+> `reprice` / `report`（期間分析）/ `sessions` / `models` / `verify` / `doctor` / `watch`
 > （near-realtime）/ `daemon`（macOS launchd）。Phase 3 は同一コア上の Wails GUI。
 > 設計は [docs/ja/claude-usage-lens-rfp.ja.md](docs/ja/claude-usage-lens-rfp.ja.md) を参照。
 
@@ -149,15 +149,37 @@ sources:
 
 ## 設定
 
-OS の config dir に任意の TOML（[config.example.toml](config.example.toml) 参照）:
-ソースパス（`[sources]`）とモデル別単価（`[pricing]`）を上書き可能。パスは
-`--source-root` でも指定できます。
+無設定でも動作します（config ファイルが無いのはエラーではありません）。上書きする
+場合は OS の config dir に TOML を置きます（全スキーマは
+[config.example.toml](config.example.toml) 参照）:
+
+```toml
+[sources]                                   # 推定パスが誤っている場合
+code_root = "/custom/path/.claude/projects"
+
+[pricing.models."claude-sonnet-5"]          # 例: 導入価格で計算する
+input_per_mtok  = 2.0
+output_per_mtok = 10.0
+```
+
+- **優先順位**: コマンドラインフラグ > config ファイル > 組み込み/OS 推定値
+- **パス**: `[sources]`、またはコマンドごとの `--code-root` / `--cowork-root`
+- **単価**: `[pricing.models."<id>"]`。省略したフィールドは **継承** されます
+  （組み込みエントリから、未知のモデルなら標準キャッシュ倍率から）。したがって
+  2行だけの上書きで十分です。蓄積済みレコードに反映するには、そのあと `reprice`
+  を実行してください。
+- **`--config PATH`** で別ファイルを指定できます。
+- **未知のキーはエラー**です（黙って無視しません）。効いているように見えて実は
+  何もしていない設定は、明示的な失敗より有害なためです。
+
+`doctor` は config のパス・読み込めたか・上書きした単価・OS 既定と異なるソース
+パスを表示します。
 
 ## クロスプラットフォーム
 
 macOS を第一級とします。**Windows / Linux は experimental** — プロファイルパスは推定で
 実機未検証です。パス区切りは `path/filepath` で吸収し、OS 別ルートは `core/platform` の
-build tag に隔離。パスが違う場合は `[sources]` / `--source-root` で修正し `doctor` で確認。
+build tag に隔離。パスが違う場合は `[sources]` / `--code-root` / `--cowork-root` で修正し `doctor` で確認。
 WSL 利用者は Linux ビルドを使ってください。
 
 **Windows でのストア権限:** store は macOS/Linux では所有者のみに制限されます（dir `0700`,

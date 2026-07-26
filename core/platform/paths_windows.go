@@ -10,7 +10,7 @@ import (
 // NOTE: these Windows paths are INFERRED and unverified on real hardware (RFP §7).
 // The Claude Code root (%USERPROFILE%\.claude) is high-confidence; the Cowork root
 // under %APPDATA%\Claude is a guess (could be Anthropic\Claude, or absent entirely).
-// Users override via config [sources] / --source-root; `doctor` reports what resolved.
+// Users override via config [sources] / --code-root / --cowork-root; `doctor` reports what resolved.
 
 func roamingAppData() (string, error) {
 	if v := os.Getenv("APPDATA"); v != "" {
