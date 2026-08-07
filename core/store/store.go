@@ -45,6 +45,24 @@ type Store interface {
 	IngestState(path string) (offset int64, ok bool, err error)
 	SetIngestState(path string, size, mtime, offset int64) error
 
+	// UpsertLimitEvents idempotently inserts rate-limit events keyed by the
+	// transcript record uuid. Returns the count newly inserted.
+	UpsertLimitEvents(evs []model.LimitEvent) (inserted int, err error)
+
+	// LimitEvents returns events in [since, until] (unix seconds; 0 = unbounded),
+	// ordered by timestamp.
+	LimitEvents(since, until int64) ([]model.LimitEvent, error)
+
+	// AddCalibration persists a calibration point (ADR-0001) and returns its id.
+	AddCalibration(c model.Calibration) (int64, error)
+
+	// Calibrations returns all calibration points for a window (or all windows
+	// when window is ""), newest ObservedAt first.
+	Calibrations(window string) ([]model.Calibration, error)
+
+	// DeleteCalibration removes one point; ok reports whether it existed.
+	DeleteCalibration(id int64) (ok bool, err error)
+
 	Close() error
 }
 
@@ -98,6 +116,29 @@ CREATE TABLE IF NOT EXISTS ingest_state (
   mtime       INTEGER,
   last_offset INTEGER,
   updated_at  INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS limit_events (
+  uuid             TEXT PRIMARY KEY,
+  ts               INTEGER,
+  source           TEXT,
+  session_id       TEXT,
+  status           INTEGER,
+  message          TEXT,
+  rate_limits_json TEXT,
+  ingested_at      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_limit_events_ts ON limit_events(ts);
+
+CREATE TABLE IF NOT EXISTS calibrations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  INTEGER,
+  observed_at INTEGER,
+  resets_at   INTEGER,
+  window      TEXT,
+  utilization REAL,
+  source      TEXT,
+  note        TEXT
 );
 `
 
@@ -408,6 +449,140 @@ func (s *sqliteStore) SetIngestState(path string, size, mtime, offset int64) err
 		path, size, mtime, offset, time.Now().Unix(),
 	)
 	return err
+}
+
+func (s *sqliteStore) UpsertLimitEvents(evs []model.LimitEvent) (int, error) {
+	if len(evs) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	stmt, err := tx.Prepare(`INSERT INTO limit_events
+	 (uuid, ts, source, session_id, status, message, rate_limits_json, ingested_at)
+	 VALUES (?,?,?,?,?,?,?,?)
+	 ON CONFLICT(uuid) DO NOTHING`)
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	defer stmt.Close()
+
+	now := time.Now().Unix()
+	inserted := 0
+	for _, e := range evs {
+		key := e.UUID
+		if key == "" {
+			// A uuid-less record cannot recur identically; key it by content so
+			// re-ingest after an offset reset stays idempotent.
+			key = fmt.Sprintf("nouuid:%s:%d:%d", e.SessionID, e.Timestamp.Unix(), e.Status)
+		}
+		var tsUnix int64
+		if !e.Timestamp.IsZero() {
+			tsUnix = e.Timestamp.Unix()
+		}
+		res, err := stmt.Exec(key, tsUnix, string(e.Source), e.SessionID, e.Status, e.Message, e.RateLimitsJSON, now)
+		if err != nil {
+			tx.Rollback()
+			return inserted, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			inserted++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return inserted, err
+	}
+	return inserted, nil
+}
+
+func (s *sqliteStore) LimitEvents(since, until int64) ([]model.LimitEvent, error) {
+	q := `SELECT uuid, ts, source, session_id, status, message, rate_limits_json
+	 FROM limit_events WHERE 1=1`
+	var args []any
+	if since > 0 {
+		q += " AND ts >= ?"
+		args = append(args, since)
+	}
+	if until > 0 {
+		q += " AND ts <= ?"
+		args = append(args, until)
+	}
+	q += " ORDER BY ts"
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.LimitEvent
+	for rows.Next() {
+		var e model.LimitEvent
+		var tsUnix int64
+		var src string
+		if err := rows.Scan(&e.UUID, &tsUnix, &src, &e.SessionID, &e.Status, &e.Message, &e.RateLimitsJSON); err != nil {
+			return out, err
+		}
+		e.Source = model.Source(src)
+		if tsUnix > 0 {
+			e.Timestamp = time.Unix(tsUnix, 0).UTC()
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) AddCalibration(c model.Calibration) (int64, error) {
+	res, err := s.db.Exec(
+		`INSERT INTO calibrations (created_at, observed_at, resets_at, window, utilization, source, note)
+		 VALUES (?,?,?,?,?,?,?)`,
+		time.Now().Unix(), c.ObservedAt.Unix(), c.ResetsAt.Unix(), c.Window, c.Utilization, c.Source, c.Note,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *sqliteStore) Calibrations(window string) ([]model.Calibration, error) {
+	q := `SELECT id, created_at, observed_at, resets_at, window, utilization, source, note FROM calibrations`
+	var args []any
+	if window != "" {
+		q += " WHERE window = ?"
+		args = append(args, window)
+	}
+	q += " ORDER BY observed_at DESC, id DESC"
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.Calibration
+	for rows.Next() {
+		var c model.Calibration
+		var created, observed, resets int64
+		if err := rows.Scan(&c.ID, &created, &observed, &resets, &c.Window, &c.Utilization, &c.Source, &c.Note); err != nil {
+			return out, err
+		}
+		c.CreatedAt = time.Unix(created, 0).UTC()
+		c.ObservedAt = time.Unix(observed, 0).UTC()
+		c.ResetsAt = time.Unix(resets, 0).UTC()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) DeleteCalibration(id int64) (bool, error) {
+	res, err := s.db.Exec("DELETE FROM calibrations WHERE id = ?", id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 func (s *sqliteStore) Close() error { return s.db.Close() }

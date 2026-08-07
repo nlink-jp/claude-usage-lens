@@ -3,6 +3,44 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-08-08
+
+### Added
+
+- **Real-quota calibration** (ADR-0001, `docs/adr/0001-limit-calibration.md`).
+  The actual subscription quota is server-side and appears in no local log, so
+  it cannot be collected; the private OAuth endpoint Claude Code's `/usage`
+  screen uses was deliberately rejected (undocumented, breaks at will). Instead:
+  - **`calibrate add --utilization <pct> --resets-at <datetime>`** records the
+    official percentage read off the `/usage` screen. The effective weekly cap
+    is derived as `window consumption ÷ percentage` on both bases (notional
+    USD and in+out tokens), at query time — `reprice` and late ingests refine
+    it retroactively. `calibrate list` / `calibrate remove --id N` manage
+    points. Derivation-poisoning inputs (0 %, an empty window, an observed-at
+    outside the reset window) are rejected with clear errors.
+  - **`limits`** reports the calibrated state of the current weekly window:
+    derived caps, consumption, estimated utilization per basis, remaining
+    headroom, calibration age, and any rate-limit events in the window.
+    `--json` is the contract the GUI's weekly monitor consumes;
+    `calibrated: false` signals "fall back to the assumed budget".
+  - **`ingest` captures 429 rate-limit events** from Claude Code transcripts
+    (`system/api_error` records with status 429 or a non-null `rateLimits`
+    payload) into a new `limit_events` table, keyed by record uuid. The
+    payload is stored verbatim — its schema has never been observed populated,
+    so nothing is interpreted from it and a future schema cannot break ingest.
+    Each event is ground truth for "the quota was exhausted at this instant".
+- **Store schema migration**: new `limit_events` and `calibrations` tables are
+  created transparently on open; an existing `usage.db` keeps its history.
+
+### Notes
+
+- The derived cap is **local-visible**: claude.ai web/mobile usage is not in
+  the logs, but a stable usage mix is absorbed by the calibration itself.
+  Re-calibrate occasionally, and after plan/promotion changes.
+- Weekly window only in v1; the 5-hour window resets too fast for manual
+  calibration to be meaningful. Limit events are captured from the `code`
+  source only (Cowork ingestion deliberately reads just `audit.jsonl`).
+
 ## [0.5.0] - 2026-07-26
 
 ### Fixed

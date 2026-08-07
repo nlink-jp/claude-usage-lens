@@ -229,6 +229,9 @@ func runIngest(args []string) error {
 	fmt.Printf("  files scanned: %d\n", res.FilesScanned)
 	fmt.Printf("  files changed: %d\n", res.FilesChanged)
 	fmt.Printf("  new records:   %d\n", res.NewRecords)
+	if res.NewEvents > 0 {
+		fmt.Printf("  limit events:  %d (rate-limit hits — see `limits`)\n", res.NewEvents)
+	}
 	if res.FileErrors > 0 {
 		fmt.Printf("  file errors:   %d (skipped)\n", res.FileErrors)
 	}

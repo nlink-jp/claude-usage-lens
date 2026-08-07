@@ -44,6 +44,8 @@ claude-usage-lens ingest     Incrementally load new/changed sessions into the st
 claude-usage-lens reprice    Recompute stored Claude Code costs after a pricing change
 claude-usage-lens report     Aggregate stored usage by day / session / project / model
 claude-usage-lens sessions   List sessions with tokens and cost
+claude-usage-lens calibrate  Record an official /usage reading to derive the real effective cap
+claude-usage-lens limits     Show calibrated weekly-quota state (caps, consumption, remaining)
 claude-usage-lens models     Show the pricing table and flag drift
 claude-usage-lens verify     Cross-check computed cost against Cowork audit.jsonl (ground truth)
 claude-usage-lens doctor     Diagnose resolved source/store/config paths
@@ -71,6 +73,43 @@ claude-usage-lens daemon install --interval 15m   # or --dry-run to preview the 
 claude-usage-lens daemon status
 claude-usage-lens daemon uninstall
 ```
+
+### Real quota, without a private API (calibration)
+
+The actual subscription quota lives server-side: no local log or file carries a
+`utilization` / `resets_at` value, so the *real* remaining allowance cannot be
+collected from logs (see `docs/adr/0001-limit-calibration.md`). What can be had
+is a **calibration**: read the official weekly percentage off Claude Code's
+`/usage` screen and record it —
+
+```sh
+claude-usage-lens calibrate add --utilization 45 --resets-at 2026-08-13T09:00
+claude-usage-lens limits
+# weekly window: 2026-08-06 09:00 → 2026-08-13 09:00 (resets in 4d 20h59m)
+# calibration:   45.0% observed 2026-08-08 12:00 (0.0 days ago, manual)
+# derived cap:   $132.40  /  660210 tokens (in+out)
+# consumed:      $59.58 (45.0%)  /  297094 tokens (45.0%)
+# remaining:     $72.82  /  363116 tokens
+```
+
+The effective cap is derived as `consumption(window start … reading) ÷ %` on
+both bases (notional cost and in+out tokens), computed at query time — a later
+`reprice` or newly ingested history refines it automatically. `calibrate list`
+/ `calibrate remove --id N` manage the points; the newest usable one wins.
+
+Caveats, by construction:
+
+- The cap is **local-visible**: claude.ai web/mobile usage is not in the logs,
+  but the calibration absorbs it as long as your usage mix stays roughly
+  stable. Re-calibrating (a 10-second act) re-anchors everything — do it
+  occasionally, and after plan or promotion changes.
+- A reading of 0 %, or a window with no local consumption, cannot anchor a cap
+  and is rejected.
+
+`ingest` additionally captures **rate-limit events** (`429` API errors from the
+Claude Code transcripts, with their raw `rateLimits` payload) into the store —
+each is ground truth for "the quota was exhausted at this instant" and is
+listed by `limits` when it falls in the current window.
 
 ### After a pricing change
 

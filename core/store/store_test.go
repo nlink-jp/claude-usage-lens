@@ -323,3 +323,132 @@ func speedOf(t *testing.T, rows []model.PricedRecord, id string) string {
 	t.Fatalf("row %s not found", id)
 	return ""
 }
+
+func TestStore_LimitEventsRoundtripAndIdempotency(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	t0 := time.Unix(1_775_000_000, 0).UTC()
+	evs := []model.LimitEvent{
+		{UUID: "ev-1", Timestamp: t0, Source: model.SourceCode, SessionID: "s1",
+			Status: 429, Message: "429 rate limit", RateLimitsJSON: `{"k":"v"}`},
+		{UUID: "ev-2", Timestamp: t0.Add(time.Hour), Source: model.SourceCode, SessionID: "s2", Status: 429},
+	}
+	n, err := s.UpsertLimitEvents(evs)
+	if err != nil || n != 2 {
+		t.Fatalf("first upsert: n=%d err=%v, want 2", n, err)
+	}
+	// Re-upserting the same events inserts nothing (uuid PK).
+	n, err = s.UpsertLimitEvents(evs)
+	if err != nil || n != 0 {
+		t.Fatalf("second upsert: n=%d err=%v, want 0", n, err)
+	}
+
+	got, err := s.LimitEvents(0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].UUID != "ev-1" || got[0].RateLimitsJSON != `{"k":"v"}` || got[0].Status != 429 {
+		t.Fatalf("roundtrip mismatch: %+v", got)
+	}
+	if !got[0].Timestamp.Equal(t0) {
+		t.Errorf("timestamp = %v, want %v", got[0].Timestamp, t0)
+	}
+
+	// Range filter: only the later event.
+	got, err = s.LimitEvents(t0.Add(30*time.Minute).Unix(), 0)
+	if err != nil || len(got) != 1 || got[0].UUID != "ev-2" {
+		t.Fatalf("since filter: %+v err=%v", got, err)
+	}
+}
+
+func TestStore_CalibrationCRUD(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	t0 := time.Unix(1_775_000_000, 0).UTC()
+	id, err := s.AddCalibration(model.Calibration{
+		ObservedAt: t0, ResetsAt: t0.Add(48 * time.Hour), Window: "weekly",
+		Utilization: 45.5, Source: "manual", Note: "test",
+	})
+	if err != nil || id <= 0 {
+		t.Fatalf("AddCalibration: id=%d err=%v", id, err)
+	}
+	id2, err := s.AddCalibration(model.Calibration{
+		ObservedAt: t0.Add(time.Hour), ResetsAt: t0.Add(48 * time.Hour), Window: "weekly",
+		Utilization: 50, Source: "manual",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cals, err := s.Calibrations("weekly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cals) != 2 || cals[0].ID != id2 { // newest ObservedAt first
+		t.Fatalf("Calibrations order wrong: %+v", cals)
+	}
+	c := cals[1]
+	if c.ID != id || c.Utilization != 45.5 || c.Note != "test" || !c.ObservedAt.Equal(t0) {
+		t.Errorf("roundtrip mismatch: %+v", c)
+	}
+
+	// Window filter excludes other windows; "" includes everything.
+	if cals, _ := s.Calibrations("five_hour"); len(cals) != 0 {
+		t.Errorf("window filter leaked: %+v", cals)
+	}
+	if cals, _ := s.Calibrations(""); len(cals) != 2 {
+		t.Errorf("unfiltered list wrong: %+v", cals)
+	}
+
+	ok, err := s.DeleteCalibration(id)
+	if err != nil || !ok {
+		t.Fatalf("DeleteCalibration: ok=%v err=%v", ok, err)
+	}
+	ok, err = s.DeleteCalibration(id)
+	if err != nil || ok {
+		t.Fatalf("double delete should report not-found: ok=%v err=%v", ok, err)
+	}
+	if cals, _ := s.Calibrations(""); len(cals) != 1 {
+		t.Errorf("delete did not stick: %+v", cals)
+	}
+}
+
+// An existing pre-ADR-0001 store (no limit_events / calibrations tables) gains
+// them transparently on Open — the schema uses CREATE TABLE IF NOT EXISTS.
+func TestStore_MigrationAddsCalibrationTables(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.db")
+
+	// Simulate an old store: a DB that has only the original tables.
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE usage_records (message_id TEXT PRIMARY KEY, ts INTEGER, source TEXT, model TEXT);
+		CREATE TABLE ingest_state (path TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open on old store: %v", err)
+	}
+	defer s.Close()
+	if _, err := s.UpsertLimitEvents([]model.LimitEvent{{UUID: "e", Status: 429}}); err != nil {
+		t.Errorf("limit_events table missing after migration: %v", err)
+	}
+	if _, err := s.AddCalibration(model.Calibration{Window: "weekly", Utilization: 1,
+		ObservedAt: time.Unix(1, 0), ResetsAt: time.Unix(2, 0)}); err != nil {
+		t.Errorf("calibrations table missing after migration: %v", err)
+	}
+}

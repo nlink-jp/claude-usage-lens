@@ -9,9 +9,11 @@ accumulate it in a durable SQLite store, and report it by day / session / projec
 same core.
 
 Current state: **Phase 2 complete** — every CLI command works end-to-end:
-`ingest`, `reprice`, `report` (period analysis), `sessions`, `models`, `verify`,
-`doctor`, `watch` (poll + incremental ingest, live deltas), `daemon` (macOS
-launchd). All core packages tested. Phase 3 = a Wails GUI over the same `core/`.
+`ingest`, `reprice`, `report` (period analysis), `sessions`, `calibrate` /
+`limits` (real-quota calibration, ADR-0001), `models`, `verify`, `doctor`,
+`watch` (poll + incremental ingest, live deltas), `daemon` (macOS launchd). All
+core packages tested. Phase 3 (GUI) shipped as the separate
+`claude-usage-lens-gui` (native SwiftUI, not Wails).
 
 `watch` uses polling (not fsnotify) — simpler and robust against deep,
 dynamically-created session trees; no new dependency. Scheduler code is per-OS
@@ -39,13 +41,15 @@ core/                   reusable, OS-neutral core (imported by CLI and future GU
   config/               optional config.toml: [sources] + [pricing.models] [tested]
   pricing/             rate table + tier/cache multipliers (self-contained)
   cost/                 pure cost engine  [tested]
-  collect/              ParseFile/ParseFrom, Discover, Dedup [tested]
+  collect/              ParseFile/ParseFrom, Discover, Dedup, 429 limit events [tested]
   ingest/               collect → dedup → price → store orchestration
   aggregate/            group-by roll-up + sort/summary [tested]
+  limits/               calibration math: window cadence, cap derivation [tested]
   store/                SQLite persistence (modernc.org/sqlite) [tested]
   audit/                parse Cowork audit.jsonl ground-truth cost [tested]
   platform/             build-tagged OS paths: paths_{darwin,windows,linux}.go [tested]
 docs/{en,ja}/           RFP (canonical design)
+docs/adr/               ADRs (0001 = real-quota calibration)
 ```
 
 ## Conventions & deliberate choices (gotchas)
@@ -108,7 +112,20 @@ docs/{en,ja}/           RFP (canonical design)
   must also go in `store.addedColumns` (idempotent `ALTER TABLE`, run on every
   `Open`). Reads of a migrated column need `COALESCE`, since old rows are NULL.
   A migration cannot backfill from the transcripts: ingest is incremental and the
-  bytes are already consumed. `speed` is the worked example.
+  bytes are already consumed. `speed` is the worked example. (Whole new *tables*
+  — `limit_events`, `calibrations` — are fine in `schema` alone: IF NOT EXISTS
+  creates them on an old store.)
+- **The real quota is not collectable; only calibratable (ADR-0001).** No local
+  file carries utilization/reset state, and the OAuth `/api/oauth/usage`
+  endpoint is rejected (private, unstable, aggressively rate-limited). Do not
+  reintroduce it. `calibrate` stores the user's official `/usage` reading;
+  `limits` derives caps at query time (`consumption ÷ %` on both bases) so
+  `reprice`/late ingest refine them. Caps are *local-visible* — claude.ai usage
+  is absorbed by the calibration as long as the mix is stable. 429 events from
+  transcripts land in `limit_events` with the `rateLimits` payload verbatim;
+  the payload has never been observed populated, so interpret nothing from it.
+  `limits --json` (`calibrated: false` ⇒ fall back) is the GUI's contract —
+  change it in lockstep with `claude-usage-lens-gui`.
 
 ## Testing strategy
 

@@ -28,6 +28,7 @@ type Result struct {
 	FilesScanned int
 	FilesChanged int
 	NewRecords   int
+	NewEvents    int // rate-limit events newly captured (ADR-0001)
 	FileErrors   int
 
 	// UnknownModels counts the code records just ingested whose model is absent
@@ -96,15 +97,23 @@ func ingestCode(st store.Store, codeRoot string, tbl pricing.Table, host string,
 		if err != nil {
 			return err
 		}
-		recs, newOffset, err := collect.ParseFrom(f.Path, offset, f.Source, host)
+		recs, events, newOffset, err := collect.ParseFrom(f.Path, offset, f.Source, host)
 		if err != nil {
 			res.FileErrors++
 			continue
 		}
-		if newOffset == offset && len(recs) == 0 {
+		if newOffset == offset && len(recs) == 0 && len(events) == 0 {
 			continue
 		}
 		res.FilesChanged++
+
+		if len(events) > 0 {
+			n, err := st.UpsertLimitEvents(events)
+			if err != nil {
+				return err
+			}
+			res.NewEvents += n
+		}
 
 		deduped := collect.Dedup(recs)
 		priced := make([]model.PricedRecord, len(deduped))

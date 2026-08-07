@@ -43,6 +43,8 @@ claude-usage-lens ingest     新規/変更セッションをストアへ増分�
 claude-usage-lens reprice    単価変更後に蓄積済み Claude Code コストを再計算
 claude-usage-lens report     蓄積データを日次/セッション/プロジェクト/モデル別に集計
 claude-usage-lens sessions   セッション一覧（トークン・コスト付き）
+claude-usage-lens calibrate  公式 /usage の読み取り値を記録して実効上限を導出
+claude-usage-lens limits     校正済み週次利用枠の状態を表示（上限・消費・残量）
 claude-usage-lens models     単価テーブルと drift を表示
 claude-usage-lens verify     自前計算を Cowork audit.jsonl (ground truth) と突合
 claude-usage-lens doctor     解決したソース/ストア/config パスを診断
@@ -69,6 +71,42 @@ claude-usage-lens daemon install --interval 15m   # --dry-run で設定プレビ
 claude-usage-lens daemon status
 claude-usage-lens daemon uninstall
 ```
+
+### 非公開 API を使わない実利用枠の把握（校正）
+
+実際のサブスクリプション利用枠はサーバー側の状態で、ローカルのログ・ファイルの
+どこにも `utilization` / `resets_at` に相当する値は記録されていません。つまり
+「本当の残量」はログからは収集できません（`docs/adr/0001-limit-calibration.md`）。
+代わりに **校正** を使います。Claude Code の `/usage` 画面に表示される公式の
+週次消費率を読み取り、記録してください:
+
+```sh
+claude-usage-lens calibrate add --utilization 45 --resets-at 2026-08-13T09:00
+claude-usage-lens limits
+# weekly window: 2026-08-06 09:00 → 2026-08-13 09:00 (resets in 4d 20h59m)
+# calibration:   45.0% observed 2026-08-08 12:00 (0.0 days ago, manual)
+# derived cap:   $132.40  /  660210 tokens (in+out)
+# consumed:      $59.58 (45.0%)  /  297094 tokens (45.0%)
+# remaining:     $72.82  /  363116 tokens
+```
+
+実効上限は `窓開始〜読取時点の消費 ÷ 消費率` として両基準（notional コスト /
+in+out トークン）で導出され、クエリ時に毎回計算されます — 後から `reprice` や
+追加 ingest があれば自動的に精度が上がります。校正点は `calibrate list` /
+`calibrate remove --id N` で管理し、導出可能な最新の1点が使われます。
+
+構造上の注意:
+
+- 導出される上限は **ローカル可視分** に対するものです。claude.ai Web/モバイル
+  の使用はログに現れませんが、利用の比率がおおむね安定していれば校正がそれを
+  吸収します。たまに（またプラン変更・プロモーション時に）再校正してください。
+  10秒で終わります。
+- 0% の読み取りや、消費ゼロの窓では上限を導出できないため拒否されます。
+
+さらに `ingest` は Claude Code transcript 中の **レート制限イベント**（429 API
+エラー、生の `rateLimits` ペイロード付き）をストアへ取り込みます。これは
+「この瞬間に枠が尽きた」という実測値で、現在の窓に入っていれば `limits` が
+一覧表示します。
 
 ### 単価変更のあと
 

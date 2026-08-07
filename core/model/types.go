@@ -68,6 +68,38 @@ type UsageRecord struct {
 	Usage Usage
 }
 
+// LimitEvent is one rate-limit rejection observed in a transcript — a
+// `type:system, subtype:api_error` record whose status is 429 (or that carries
+// a non-null rateLimits payload). It is ground truth for "the quota was
+// exhausted at this instant" (ADR-0001). RateLimitsJSON is preserved verbatim
+// because the payload schema has never been observed populated; nothing is
+// interpreted from it, so a future schema cannot break ingestion.
+type LimitEvent struct {
+	UUID           string // the transcript record uuid — the dedup key
+	Timestamp      time.Time
+	Source         Source
+	SessionID      string
+	Status         int    // HTTP status from the error payload (429)
+	Message        string // error message text, truncated at parse time
+	RateLimitsJSON string // raw error.rateLimits JSON; "" when null/absent
+}
+
+// Calibration is one observed real-utilization reading (ADR-0001): at
+// ObservedAt the official /usage screen showed Utilization percent consumed on
+// Window, with the next reset at ResetsAt. Effective caps are DERIVED from a
+// calibration at query time (consumption in the window ÷ utilization) — never
+// stored — so repricing or late ingestion automatically improves them.
+type Calibration struct {
+	ID          int64
+	CreatedAt   time.Time
+	ObservedAt  time.Time
+	ResetsAt    time.Time // the next reset instant as shown by /usage; anchors the cadence
+	Window      string    // "weekly" (the only window in v1)
+	Utilization float64   // percent, 0 < u ≤ 100
+	Source      string    // "manual" | "limit_event"
+	Note        string
+}
+
 // Cost is a computed list-price-equivalent (notional) cost. It is the API list
 // price, NOT an actual billed amount — subscription (Max/Pro) usage is not billed
 // per token. Always present this as "notional" to the user.

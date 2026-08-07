@@ -27,6 +27,10 @@ func Execute(version string) {
 		err = runReport(args)
 	case "sessions":
 		err = runSessions(args)
+	case "calibrate":
+		err = runCalibrate(args)
+	case "limits":
+		err = runLimits(args)
 	case "reprice":
 		err = runReprice(args)
 	case "models":
@@ -68,6 +72,8 @@ Commands:
   reprice    Recompute stored Claude Code costs after a pricing-table change
   report     Aggregate stored usage by day / session / project / model
   sessions   List sessions with tokens and cost
+  calibrate  Record an official /usage reading to derive the real effective cap
+  limits     Show calibrated weekly-quota state (caps, consumption, remaining)
   models     Show the pricing table and flag drift
   verify     Cross-check our computed cost against Cowork audit.jsonl (ground truth)
   doctor     Diagnose resolved source/store/config paths (cross-OS verification)

@@ -18,12 +18,19 @@ import (
 // survive schema drift.
 type rawLine struct {
 	Type       string `json:"type"`
+	Subtype    string `json:"subtype"`
+	UUID       string `json:"uuid"`
 	Timestamp  string `json:"timestamp"`
 	SessionID  string `json:"sessionId"`
 	Cwd        string `json:"cwd"`
 	Entrypoint string `json:"entrypoint"`
 	RequestID  string `json:"requestId"`
-	Message    *struct {
+	Error      *struct {
+		Status     int             `json:"status"`
+		Message    string          `json:"message"`
+		RateLimits json.RawMessage `json:"rateLimits"`
+	} `json:"error"`
+	Message *struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
 		Usage *struct {
@@ -48,25 +55,25 @@ type rawLine struct {
 // ParseFile reads one JSONL transcript and returns its assistant usage records.
 // src/host describe provenance stamped onto every record.
 func ParseFile(path string, src model.Source, host string) ([]model.UsageRecord, error) {
-	recs, _, err := ParseFrom(path, 0, src, host)
+	recs, _, _, err := ParseFrom(path, 0, src, host)
 	return recs, err
 }
 
-// ParseFrom reads a transcript starting at byte offset and returns its records
-// plus the file's current size (the new offset to persist). Transcripts are
-// append-only whole-line JSONL, so a previously-recorded offset always lands on
-// a line boundary. If the file has shrunk below offset (rotated/truncated), it
-// is re-read from the start.
-func ParseFrom(path string, offset int64, src model.Source, host string) (recs []model.UsageRecord, newOffset int64, err error) {
+// ParseFrom reads a transcript starting at byte offset and returns its usage
+// records and rate-limit events, plus the file's current size (the new offset
+// to persist). Transcripts are append-only whole-line JSONL, so a
+// previously-recorded offset always lands on a line boundary. If the file has
+// shrunk below offset (rotated/truncated), it is re-read from the start.
+func ParseFrom(path string, offset int64, src model.Source, host string) (recs []model.UsageRecord, events []model.LimitEvent, newOffset int64, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	defer f.Close()
 
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	size := fi.Size()
 	if offset < 0 || offset > size {
@@ -74,19 +81,21 @@ func ParseFrom(path string, offset int64, src model.Source, host string) (recs [
 	}
 	if offset > 0 {
 		if _, err := f.Seek(offset, io.SeekStart); err != nil {
-			return nil, 0, err
+			return nil, nil, 0, err
 		}
 	}
-	recs, err = parseReader(f, src, host)
-	return recs, size, err
+	recs, events, err = parseReader(f, src, host)
+	return recs, events, size, err
 }
 
 // parseReader is the testable core of ParseFile. It streams lines, trims a
-// trailing '\r' (CRLF safety), decodes each tolerantly, and keeps only
-// assistant records carrying token usage. The "<synthetic>" model (local
-// synthetic responses) is excluded — it carries no billable cost.
-func parseReader(r io.Reader, src model.Source, host string) ([]model.UsageRecord, error) {
+// trailing '\r' (CRLF safety), decodes each tolerantly, and keeps assistant
+// records carrying token usage plus rate-limit events (ADR-0001). The
+// "<synthetic>" model (local synthetic responses) is excluded — it carries no
+// billable cost.
+func parseReader(r io.Reader, src model.Source, host string) ([]model.UsageRecord, []model.LimitEvent, error) {
 	var out []model.UsageRecord
+	var events []model.LimitEvent
 	sc := bufio.NewScanner(r)
 	// Transcript lines can be large (embedded tool results); grow the buffer.
 	sc.Buffer(make([]byte, 0, 64*1024), 32*1024*1024)
@@ -99,6 +108,10 @@ func parseReader(r io.Reader, src model.Source, host string) ([]model.UsageRecor
 		var raw rawLine
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
 			continue // tolerant: skip malformed lines
+		}
+		if ev, ok := limitEventOf(raw, src); ok {
+			events = append(events, ev)
+			continue
 		}
 		if raw.Type != "assistant" || raw.Message == nil || raw.Message.Usage == nil {
 			continue
@@ -141,9 +154,43 @@ func parseReader(r io.Reader, src model.Source, host string) ([]model.UsageRecor
 		out = append(out, rec)
 	}
 	if err := sc.Err(); err != nil {
-		return out, err
+		return out, events, err
 	}
-	return out, nil
+	return out, events, nil
+}
+
+// limitEventMessageMax bounds the stored error-message text. The message can
+// embed a full API error body; the head is what identifies the failure.
+const limitEventMessageMax = 500
+
+// limitEventOf extracts a rate-limit event from a system/api_error record. An
+// event is kept when the status is 429, or when a rateLimits payload is
+// present — the payload has never been observed populated (ADR-0001), so it is
+// preserved verbatim and nothing is interpreted from it.
+func limitEventOf(raw rawLine, src model.Source) (model.LimitEvent, bool) {
+	if raw.Type != "system" || raw.Subtype != "api_error" || raw.Error == nil {
+		return model.LimitEvent{}, false
+	}
+	rl := strings.TrimSpace(string(raw.Error.RateLimits))
+	if rl == "null" || rl == `""` {
+		rl = ""
+	}
+	if raw.Error.Status != 429 && rl == "" {
+		return model.LimitEvent{}, false
+	}
+	msg := raw.Error.Message
+	if len(msg) > limitEventMessageMax {
+		msg = msg[:limitEventMessageMax]
+	}
+	return model.LimitEvent{
+		UUID:           raw.UUID,
+		Timestamp:      parseTime(raw.Timestamp),
+		Source:         src,
+		SessionID:      raw.SessionID,
+		Status:         raw.Error.Status,
+		Message:        msg,
+		RateLimitsJSON: rl,
+	}, true
 }
 
 // entrypointFor maps the in-record entrypoint to a model.Entrypoint. A cowork

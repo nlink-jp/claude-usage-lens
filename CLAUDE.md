@@ -40,13 +40,14 @@ make build-all  # cross-compile release platforms (darwin arm64 only; CGO-free)
 
 ## Architecture
 
-- `cmd/` — stdlib-flag dispatch (`doctor` implemented; rest wired as stubs)
+- `cmd/` — stdlib-flag dispatch (all commands implemented)
 - `core/model` — shared types
 - `core/pricing` — rate table + multipliers
 - `core/cost` — pure cost engine (tested)
-- `core/collect` — discover / parse / dedup (dedup tested)
+- `core/collect` — discover / parse / dedup + 429 limit events (tested)
 - `core/aggregate` — group-by roll-up
-- `core/store` — SQLite persistence (interface + Phase 1 impl)
+- `core/limits` — real-quota calibration math (ADR-0001, tested)
+- `core/store` — SQLite persistence (usage, limit events, calibrations)
 - `core/platform` — OS-specific source roots / config / data dirs (tested)
 
 ## Design references

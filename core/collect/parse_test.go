@@ -21,7 +21,7 @@ func TestParseReader(t *testing.T) {
 	}
 	in := strings.NewReader(strings.Join(lines, "\n"))
 
-	recs, err := parseReader(in, model.SourceCode, "testhost")
+	recs, _, err := parseReader(in, model.SourceCode, "testhost")
 	if err != nil {
 		t.Fatalf("parseReader error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestParseReader(t *testing.T) {
 
 func TestParseReader_CoworkEntrypointDefault(t *testing.T) {
 	line := `{"type":"assistant","message":{"id":"msg_c","model":"claude-opus-4-8","usage":{"input_tokens":1,"output_tokens":1}}}`
-	recs, err := parseReader(strings.NewReader(line), model.SourceCowork, "h")
+	recs, _, err := parseReader(strings.NewReader(line), model.SourceCowork, "h")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestParseReader_Speed(t *testing.T) {
 		`{"type":"assistant","message":{"id":"msg_std","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":1,"service_tier":"standard","speed":"standard"}}}`,
 		`{"type":"assistant","message":{"id":"msg_old","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":1,"service_tier":"standard"}}}`,
 	}
-	recs, err := parseReader(strings.NewReader(strings.Join(lines, "\n")), model.SourceCode, "h")
+	recs, _, err := parseReader(strings.NewReader(strings.Join(lines, "\n")), model.SourceCode, "h")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,5 +88,59 @@ func TestParseReader_Speed(t *testing.T) {
 		if recs[i].Speed != want {
 			t.Errorf("record %d speed = %q, want %q", i, recs[i].Speed, want)
 		}
+	}
+}
+
+// Rate-limit events (ADR-0001): a system/api_error record is captured when its
+// status is 429 or it carries a non-null rateLimits payload; 529s and other
+// errors are not events. The rateLimits JSON is preserved verbatim.
+func TestParseReader_LimitEvents(t *testing.T) {
+	lines := []string{
+		// 429 with a populated rateLimits payload (schema unknown → kept raw).
+		`{"type":"system","subtype":"api_error","uuid":"ev-1","timestamp":"2026-08-01T10:00:00.000Z","sessionId":"sess-1","error":{"status":429,"message":"429 rate limit reached","rateLimits":{"anything":"goes"}}}`,
+		// 429 with a null payload — still an event.
+		`{"type":"system","subtype":"api_error","uuid":"ev-2","sessionId":"sess-1","error":{"status":429,"message":"429","rateLimits":null}}`,
+		// 529 Overloaded — not a limit event.
+		`{"type":"system","subtype":"api_error","uuid":"ev-3","error":{"status":529,"message":"529 overloaded","rateLimits":null}}`,
+		// Other system record types are ignored.
+		`{"type":"system","subtype":"turn_duration","uuid":"ev-4"}`,
+		// A normal assistant record still parses alongside events.
+		`{"type":"assistant","message":{"id":"msg_x","model":"claude-opus-4-8","usage":{"input_tokens":1,"output_tokens":1}}}`,
+	}
+	recs, events, err := parseReader(strings.NewReader(strings.Join(lines, "\n")), model.SourceCode, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Errorf("got %d usage records, want 1", len(recs))
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2: %+v", len(events), events)
+	}
+	e := events[0]
+	if e.UUID != "ev-1" || e.Status != 429 || e.SessionID != "sess-1" || e.Source != model.SourceCode {
+		t.Errorf("event 0 identity wrong: %+v", e)
+	}
+	if e.RateLimitsJSON != `{"anything":"goes"}` {
+		t.Errorf("event 0 payload not preserved verbatim: %q", e.RateLimitsJSON)
+	}
+	if e.Timestamp.IsZero() {
+		t.Errorf("event 0 timestamp not parsed")
+	}
+	if events[1].UUID != "ev-2" || events[1].RateLimitsJSON != "" {
+		t.Errorf("event 1 wrong (null payload should read as empty): %+v", events[1])
+	}
+}
+
+// A long error message is truncated at storage boundary; the head survives.
+func TestParseReader_LimitEventMessageTruncated(t *testing.T) {
+	long := strings.Repeat("x", 2000)
+	line := `{"type":"system","subtype":"api_error","uuid":"ev-t","error":{"status":429,"message":"` + long + `"}}`
+	_, events, err := parseReader(strings.NewReader(line), model.SourceCode, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || len(events[0].Message) != limitEventMessageMax {
+		t.Fatalf("message not truncated to %d: got %d", limitEventMessageMax, len(events[0].Message))
 	}
 }
