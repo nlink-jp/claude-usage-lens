@@ -135,7 +135,7 @@ func TestDefaultTable_FastModeTier(t *testing.T) {
 		}
 	}
 
-	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1"} {
+	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1", "claude-mythos-5-1"} {
 		r, ok := tbl.Lookup(m)
 		if !ok {
 			t.Fatalf("%s missing from the table", m)

@@ -100,8 +100,9 @@ docs/adr/               ADRs (0001 = real-quota calibration)
   them working: `ingest`/`reprice` warn about billable models absent from the
   table; `report --summary` counts stored `code` rows that carry tokens at $0
   (`unpriced_records` / `unpriced_models`, derived from the rows alone with no
-  rate table, so it also flags "priced now, not yet repriced"; the GUI badges
-  it — part of the JSON contract, change in lockstep); and **`reprice`**
+  rate table, so it also flags "priced now, not yet repriced" — and, by the
+  same token, a model a user deliberately prices at $0 in config, accepted;
+  the GUI badges it — part of the JSON contract, change in lockstep); and **`reprice`**
   recomputes stored `code` rows from their token columns. Adding a model is
   therefore a two-step fix — update `pricing.Default()`, then `reprice` —
   because ingest is incremental and never re-reads already-consumed bytes.

@@ -123,9 +123,14 @@ func withCacheRead(r Rates, mult float64) Rates {
 	return r
 }
 
+// VerifiedOn is the date the built-in table was last checked, column by column
+// and footnotes included, against Anthropic's pricing page. `models` prints it
+// so a reader can judge how stale the table may be.
+const VerifiedOn = "2026-09-02"
+
 // Default returns the built-in rate table.
 //
-// Prices are USD per 1M tokens, verified 2026-09-02 against Anthropic's live
+// Prices are USD per 1M tokens, verified on VerifiedOn against Anthropic's live
 // pricing page. Override or extend via config.toml [pricing]. Unknown models
 // (including "<synthetic>") are absent by design → zero cost.
 //

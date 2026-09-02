@@ -663,7 +663,7 @@ func runModels(args []string) error {
 			fastIn, fastOut, r.CacheReadMultiplier, r.CacheWrite5mMultiplier, r.CacheWrite1hMultiplier, src)
 	}
 	tw.Flush()
-	fmt.Println("\nRates USD per 1M tokens (built-in table as of 2026-09-02).")
+	fmt.Printf("\nRates USD per 1M tokens (built-in table as of %s).\n", pricing.VerifiedOn)
 	fmt.Println("FAST-* is the `speed: \"fast\"` premium tier; \"—\" means the model has no fast mode.")
 	fmt.Println("Override via config.toml [pricing.models], then run `reprice` to apply to stored history.")
 	return nil

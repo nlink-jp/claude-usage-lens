@@ -41,7 +41,10 @@
 # input_per_mtok  = 4.0
 # output_per_mtok = 20.0
 
-# Price a model released after this build — multipliers come for free:
+# Price a model released after this build — the standard multipliers come for
+# free, but check the pricing page's cache-read footnote first: Fable 5.1 /
+# Mythos 5.1 read at 0.025x rather than 0.1x, and a model priced like them also
+# needs cache_read_multiplier set here.
 # [pricing.models."claude-future-9"]
 # input_per_mtok  = 7.0
 # output_per_mtok = 35.0

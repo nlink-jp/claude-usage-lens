@@ -85,6 +85,31 @@ input_per_mtok = 4.0
 	}
 }
 
+// A partial override must inherit the model's OWN multipliers, not the standard
+// set: Fable 5.1's cache read is 0.025×, and a merge that rebuilt known models
+// from StandardRates before applying overrides would pass every other test
+// while quadrupling its cache reads.
+func TestPricingTable_PartialOverrideKeepsPerModelCacheRead(t *testing.T) {
+	path := write(t, `
+[pricing.models."claude-fable-5-1"]
+input_per_mtok = 9.0
+`)
+	cfg, _, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := cfg.PricingTable(pricing.Default()).Lookup("claude-fable-5-1")
+	if !ok {
+		t.Fatal("model disappeared from the table")
+	}
+	if r.InputPerMTok != 9.0 || r.OutputPerMTok != 50 {
+		t.Errorf("base = %v/%v, want 9/50", r.InputPerMTok, r.OutputPerMTok)
+	}
+	if r.CacheReadMultiplier != 0.025 {
+		t.Errorf("cache read = %v, want the model's own 0.025 (not the standard 0.1)", r.CacheReadMultiplier)
+	}
+}
+
 // Explicit 0 must be honoured — that is what pointers buy over plain floats.
 func TestPricingTable_ExplicitZeroIsApplied(t *testing.T) {
 	path := write(t, `

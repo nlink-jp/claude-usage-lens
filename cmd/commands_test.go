@@ -1,12 +1,38 @@
 package cmd
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/nlink-jp/claude-usage-lens/core/aggregate"
 	"github.com/nlink-jp/claude-usage-lens/core/config"
 	"github.com/nlink-jp/claude-usage-lens/core/platform"
 )
+
+// The summary's unpriced line: absent when nothing is unpriced, otherwise the
+// count with a per-model breakdown in a stable (sorted) order and the way out.
+func TestPrintSummary_UnpricedLine(t *testing.T) {
+	var buf bytes.Buffer
+	printSummary(&buf, aggregate.Summary{Records: 3, UnpricedModels: map[string]int{}})
+	if strings.Contains(buf.String(), "unpriced") {
+		t.Errorf("no unpriced records must not print the line:\n%s", buf.String())
+	}
+
+	buf.Reset()
+	printSummary(&buf, aggregate.Summary{
+		Records: 3, UnpricedRecords: 3,
+		UnpricedModels: map[string]int{"claude-zeta-1": 1, "claude-alpha-9": 2},
+	})
+	out := buf.String()
+	if !strings.Contains(out, "unpriced: 3 record(s) stored at $0 — claude-alpha-9 (2), claude-zeta-1 (1)") {
+		t.Errorf("unpriced line missing or unsorted:\n%s", out)
+	}
+	if !strings.Contains(out, "`reprice`") {
+		t.Errorf("unpriced line must name the way out:\n%s", out)
+	}
+}
 
 func TestResolveTZ(t *testing.T) {
 	if loc, err := resolveTZ("utc"); err != nil || loc != time.UTC {
