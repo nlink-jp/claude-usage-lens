@@ -2,18 +2,26 @@ package pricing
 
 import "testing"
 
+// Prices as published on Anthropic's pricing page (verified 2026-09-02). The
+// cache-read multiplier is per model: 0.1× everywhere except Claude Fable 5.1 /
+// Mythos 5.1, whose reads are footnoted at 0.025×. The write multipliers are
+// the same for every model.
 func TestDefaultTable_KnownModels(t *testing.T) {
 	tbl := Default()
 	cases := []struct {
-		model      string
-		wantInput  float64
-		wantOutput float64
+		model         string
+		wantInput     float64
+		wantOutput    float64
+		wantCacheRead float64
 	}{
-		{"claude-opus-5", 5, 25},
-		{"claude-opus-4-8", 5, 25},
-		{"claude-fable-5", 10, 50},
-		{"claude-sonnet-5", 3, 15},
-		{"claude-haiku-4-5", 1, 5},
+		{"claude-fable-5-1", 10, 50, 0.025},
+		{"claude-mythos-5-1", 10, 50, 0.025},
+		{"claude-fable-5", 10, 50, 0.10},
+		{"claude-opus-5", 5, 25, 0.10},
+		{"claude-opus-4-8", 5, 25, 0.10},
+		{"claude-sonnet-5", 2, 10, 0.10}, // the scheduled rise to $3/$15 was cancelled
+		{"claude-sonnet-4-6", 3, 15, 0.10},
+		{"claude-haiku-4-5", 1, 5, 0.10},
 	}
 	for _, c := range cases {
 		r, ok := tbl.Lookup(c.model)
@@ -24,12 +32,30 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		if r.InputPerMTok != c.wantInput || r.OutputPerMTok != c.wantOutput {
 			t.Errorf("%s: got %v/%v, want %v/%v", c.model, r.InputPerMTok, r.OutputPerMTok, c.wantInput, c.wantOutput)
 		}
-		if r.CacheReadMultiplier != 0.10 || r.CacheWrite5mMultiplier != 1.25 || r.CacheWrite1hMultiplier != 2.00 {
-			t.Errorf("%s: unexpected cache multipliers: %+v", c.model, r)
+		if r.CacheReadMultiplier != c.wantCacheRead {
+			t.Errorf("%s: cache read multiplier = %v, want %v", c.model, r.CacheReadMultiplier, c.wantCacheRead)
+		}
+		if r.CacheWrite5mMultiplier != 1.25 || r.CacheWrite1hMultiplier != 2.00 {
+			t.Errorf("%s: unexpected cache write multipliers: %+v", c.model, r)
 		}
 		if r.WebSearchPerReq != 0.01 || r.WebFetchPerReq != 0 {
 			t.Errorf("%s: web tool rates wrong: search=%v fetch=%v (want 0.01 / 0)", c.model, r.WebSearchPerReq, r.WebFetchPerReq)
 		}
+	}
+}
+
+// The Fable 5.1 entry must not be a copy of Fable 5's: the only difference is
+// the cache-read multiplier, and it is the difference that matters.
+func TestDefaultTable_Fable51DiffersOnlyInCacheRead(t *testing.T) {
+	tbl := Default()
+	f51, _ := tbl.Lookup("claude-fable-5-1")
+	f5, _ := tbl.Lookup("claude-fable-5")
+	if f51.CacheReadMultiplier == f5.CacheReadMultiplier {
+		t.Fatalf("fable-5-1 cache read = %v, must differ from fable-5's %v", f51.CacheReadMultiplier, f5.CacheReadMultiplier)
+	}
+	f51.CacheReadMultiplier = f5.CacheReadMultiplier
+	if f51 != f5 {
+		t.Errorf("fable-5-1 differs from fable-5 beyond the cache read: %+v vs %+v", f51, f5)
 	}
 }
 
@@ -52,6 +78,11 @@ func TestLookup_DatedSnapshotSuffix(t *testing.T) {
 	}
 	if _, ok := tbl.Lookup("claude-fable-5[1m]"); !ok {
 		t.Error("fable [1m] variant should resolve")
+	}
+	// The 5.1 variant keeps its own (cheaper) cache-read multiplier, and its
+	// trailing "-1" is not mistaken for a date suffix.
+	if r, ok := tbl.Lookup("claude-fable-5-1[1m]"); !ok || r.CacheReadMultiplier != 0.025 {
+		t.Errorf("fable-5-1[1m] should resolve with the 0.025x cache read: %+v ok=%v", r, ok)
 	}
 	// A non-date suffix must NOT be stripped.
 	if _, ok := tbl.Lookup("claude-opus-4-8-turbo"); ok {
@@ -104,7 +135,7 @@ func TestDefaultTable_FastModeTier(t *testing.T) {
 		}
 	}
 
-	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-fable-5"} {
+	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1"} {
 		r, ok := tbl.Lookup(m)
 		if !ok {
 			t.Fatalf("%s missing from the table", m)

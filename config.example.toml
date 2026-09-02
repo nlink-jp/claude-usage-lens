@@ -35,10 +35,11 @@
 # incremental. Run `claude-usage-lens reprice` afterwards to apply it to the
 # history already in the store.
 
-# Cost Sonnet 5 at its introductory rate instead of the durable $3 / $15:
-# [pricing.models."claude-sonnet-5"]
-# input_per_mtok  = 2.0
-# output_per_mtok = 10.0
+# Cost a built-in model at a different rate (e.g. a negotiated discount); the
+# cache multipliers and web-search charge inherit from the built-in entry:
+# [pricing.models."claude-opus-5"]
+# input_per_mtok  = 4.0
+# output_per_mtok = 20.0
 
 # Price a model released after this build — multipliers come for free:
 # [pricing.models."claude-future-9"]

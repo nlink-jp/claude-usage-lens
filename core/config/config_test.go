@@ -208,9 +208,10 @@ fast_output_per_mtok = 30.0
 	if in, out := r.Base(pricing.SpeedFast); in != 6 || out != 30 {
 		t.Errorf("Base(fast) = %v/%v, want 6/30", in, out)
 	}
-	// The standard pair is untouched.
-	if in, _ := r.Base(pricing.SpeedStandard); in != 3 {
-		t.Errorf("Base(standard) = %v, want the built-in 3", in)
+	// The standard pair is untouched — it stays whatever the built-in says.
+	builtin, _ := pricing.Default().Lookup("claude-sonnet-5")
+	if in, out := r.Base(pricing.SpeedStandard); in != builtin.InputPerMTok || out != builtin.OutputPerMTok {
+		t.Errorf("Base(standard) = %v/%v, want the built-in %v/%v", in, out, builtin.InputPerMTok, builtin.OutputPerMTok)
 	}
 }
 

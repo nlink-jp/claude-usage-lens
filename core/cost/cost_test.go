@@ -162,3 +162,34 @@ func TestComputeRecord_CarriesSpeedThrough(t *testing.T) {
 		t.Errorf("ComputeRecord() = %v, want 6.0 (fast rate)", c.ListPriceUSD)
 	}
 }
+
+// Claude Fable 5.1 prices cache reads at $0.25/MTok (0.025× its $10 input),
+// against $1.00/MTok on Fable 5. This is the one per-model multiplier in the
+// built-in table, and the engine must take it from the record's own entry —
+// a shared 0.1× constant would quadruple every Fable 5.1 cache read.
+func TestComputeRecord_Fable51CacheRead(t *testing.T) {
+	tbl := pricing.Default()
+	read := model.Usage{CacheReadInputTokens: 1_000_000}
+	cases := []struct {
+		model string
+		want  float64
+	}{
+		{"claude-fable-5-1", 0.25},
+		{"claude-fable-5-1[1m]", 0.25},
+		{"claude-mythos-5-1", 0.25},
+		{"claude-fable-5", 1.00},
+	}
+	for _, c := range cases {
+		rec := model.UsageRecord{Model: c.model, ServiceTier: "standard", Usage: read}
+		if got := ComputeRecord(rec, tbl).ListPriceUSD; !almostEqual(got, c.want) {
+			t.Errorf("%s: 1M cache-read tokens = $%v, want $%v", c.model, got, c.want)
+		}
+	}
+	// Everything else on Fable 5.1 is priced as on Fable 5.
+	rest := model.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheCreation1h: 1_000_000, CacheCreation5m: 1_000_000}
+	f51 := ComputeRecord(model.UsageRecord{Model: "claude-fable-5-1", ServiceTier: "standard", Usage: rest}, tbl).ListPriceUSD
+	f5 := ComputeRecord(model.UsageRecord{Model: "claude-fable-5", ServiceTier: "standard", Usage: rest}, tbl).ListPriceUSD
+	if !almostEqual(f51, f5) || !almostEqual(f51, 10+50+20+12.5) {
+		t.Errorf("non-cache-read usage: fable-5-1 = $%v, fable-5 = $%v, want both $92.50", f51, f5)
+	}
+}
