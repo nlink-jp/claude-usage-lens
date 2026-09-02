@@ -3,6 +3,43 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-09-02
+
+### Fixed
+
+- **`claude-fable-5-1` was priced at $0.** Claude Fable 5.1 became Claude
+  Code's default model and was absent from the rate table, so — as with Opus 5
+  in v0.5.0 — every turn on it was stored as free. Added at **$10 / $50** per
+  1M tokens with **cache reads at 0.025×** ($0.25 / MTok): the pricing page
+  footnotes Fable 5.1 and Mythos 5.1 as the one exception to the 0.1× cache-read
+  rule, and it is the term that matters — on the author's data cache reads are
+  about 69% of a Fable session's notional cost, so copying Fable 5's entry
+  would have overstated Fable 5.1 by roughly 2×. `claude-mythos-5-1` is added
+  on the same terms. Neither has a fast tier (Opus 5 / Opus 4.8 only).
+
+  **After updating, run `claude-usage-lens reprice` once** — records already
+  in your store keep their $0 until repriced.
+
+- **Sonnet 5 stays at $2 / $10.** The table carried the $3 / $15 that was
+  scheduled for 2026-09-01; the pricing page now states that increase will not
+  occur, so the launch price is the standard price. Stored Sonnet 5 rows were
+  overstated by 50% and are corrected by the same `reprice`.
+
+### Added
+
+- **`report --summary` reports unpriced records** — the Claude Code records
+  in the period that carry tokens yet are stored at $0, with a per-model
+  breakdown (`unpriced_records` / `unpriced_models` in `--json`). Derived from
+  the stored rows alone, so it needs no rate table and also flags rows that are
+  priced now but not yet `reprice`d. Until now the only signal was a stderr
+  warning at ingest time, which the menu-bar app never showed; the app
+  (claude-usage-lens-gui v0.3.0) renders this count as a badge.
+
+### Changed
+
+- `config.example.toml` and the READMEs no longer use Sonnet 5's introductory
+  rate as the override example, since that rate is now the built-in price.
+
 ## [0.6.0] - 2026-08-08
 
 ### Added
