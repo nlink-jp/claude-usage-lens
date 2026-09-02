@@ -127,6 +127,12 @@ Cowork レコードは再計算しません（コストは Anthropic 公式の `
 該当レコードは **$0** で保存されているので、警告が出たら `core/pricing` にモデルを
 追加して `reprice` を実行してください。
 
+同じ欠落は後からも確認できます。`report --summary` は、期間内でトークンを持つのに
+$0 で保存されているレコードをモデル別に数えます（`--json` では `unpriced_records`
+/ `unpriced_models`）。0 でなければ、お使いのビルドより後に出たモデルがあるか、
+テーブルは更新済みだが `reprice` がまだ、のどちらかです。メニューバーアプリは
+この件数をバッジで表示します。
+
 ### fast mode
 
 Claude Code の `/fast`（Opus 5 / Opus 4.8）は $5/$25 ではなく **$10/$50** で課金され、
@@ -207,9 +213,9 @@ sources:
 [sources]                                   # 推定パスが誤っている場合
 code_root = "/custom/path/.claude/projects"
 
-[pricing.models."claude-sonnet-5"]          # 例: 導入価格で計算する
-input_per_mtok  = 2.0
-output_per_mtok = 10.0
+[pricing.models."claude-opus-5"]            # 例: 交渉済み単価。他のフィールドは継承
+input_per_mtok  = 4.0
+output_per_mtok = 20.0
 ```
 
 - **優先順位**: コマンドラインフラグ > config ファイル > 組み込み/OS 推定値

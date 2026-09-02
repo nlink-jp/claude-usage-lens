@@ -285,6 +285,28 @@ type Summary struct {
 	PeakDay         string  `json:"peak_day"`
 	PeakUSD         float64 `json:"peak_usd"`
 	Projection30USD float64 `json:"projection_30d_usd"`
+
+	// UnpricedRecords counts the Claude Code records in the period that carry
+	// billable tokens yet are stored at $0 — the trace a model leaves when it is
+	// absent from the rate table at ingest time (a release newer than this
+	// build), or has been priced since but not yet `reprice`d. UnpricedModels
+	// breaks the count down by model id. Both are derived from the stored rows
+	// alone, with no rate table, so they are correct for any config. Cowork rows
+	// are never counted (their cost is the audited ground truth), nor is
+	// "<synthetic>" (legitimately free). Part of the GUI's JSON contract.
+	UnpricedRecords int            `json:"unpriced_records"`
+	UnpricedModels  map[string]int `json:"unpriced_models"`
+}
+
+// Unpriced reports whether a stored record is a $0 Claude Code turn that should
+// have cost something: it carries tokens, its model is billable, and its stored
+// cost is zero. See Summary.UnpricedRecords.
+func Unpriced(r model.PricedRecord) bool {
+	if r.Source != model.SourceCode || !model.Billable(r.Model) || r.Cost.ListPriceUSD != 0 {
+		return false
+	}
+	u := r.Usage
+	return u.InputTokens+u.OutputTokens+u.CacheReadInputTokens+u.CacheCreation1h+u.CacheCreation5m > 0
 }
 
 // Summarize computes period statistics from priced records. Totals include every
@@ -293,7 +315,13 @@ type Summary struct {
 // projection is the average cost per active day × 30.
 func Summarize(recs []model.PricedRecord, loc *time.Location) Summary {
 	dayRows, _ := Aggregate(recs, []Dimension{ByDay}, loc)
-	var s Summary
+	s := Summary{UnpricedModels: map[string]int{}}
+	for _, r := range recs {
+		if Unpriced(r) {
+			s.UnpricedRecords++
+			s.UnpricedModels[r.Model]++
+		}
+	}
 	for _, r := range dayRows {
 		s.Records += r.Records
 		s.InputTokens += r.InputTokens

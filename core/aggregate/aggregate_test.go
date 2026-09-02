@@ -127,6 +127,39 @@ func TestSummarize(t *testing.T) {
 	if s.Projection30USD != 3600.0 { // 120 * 30
 		t.Errorf("projection wrong: %v", s.Projection30USD)
 	}
+	if s.UnpricedRecords != 0 || len(s.UnpricedModels) != 0 || s.UnpricedModels == nil {
+		t.Errorf("priced records must report an empty (non-nil) unpriced set: %+v", s)
+	}
+}
+
+// A $0 Claude Code turn that carries tokens is "unpriced" — its model was not
+// in the rate table when it was ingested. Cowork rows, "<synthetic>", and
+// token-less rows are not.
+func TestSummarize_Unpriced(t *testing.T) {
+	day := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
+	withSource := func(r model.PricedRecord, src model.Source) model.PricedRecord {
+		r.Source = src
+		return r
+	}
+	recs := []model.PricedRecord{
+		withSource(rec("claude-fable-5-1", day, 10, 10, 0), model.SourceCode),                                                       // unpriced
+		withSource(rec("claude-fable-5-1", day, 10, 10, 0), model.SourceCode),                                                       // unpriced
+		withSource(rec("claude-future-9", day, 10, 10, 0), model.SourceCode),                                                        // unpriced, other model
+		withSource(rec("claude-fable-5", day, 10, 10, 1.5), model.SourceCode),                                                       // priced
+		withSource(rec("claude-fable-5-1", day, 10, 10, 0), model.SourceCowork),                                                     // cowork: audited, never unpriced
+		withSource(rec(model.SyntheticModel, day, 10, 10, 0), model.SourceCode),                                                     // synthetic: legitimately free
+		withSource(model.PricedRecord{UsageRecord: model.UsageRecord{Timestamp: day, Model: "claude-fable-5-1"}}, model.SourceCode), // no tokens
+	}
+	s := Summarize(recs, time.UTC)
+	if s.UnpricedRecords != 3 {
+		t.Errorf("unpriced records = %d, want 3", s.UnpricedRecords)
+	}
+	if s.UnpricedModels["claude-fable-5-1"] != 2 || s.UnpricedModels["claude-future-9"] != 1 || len(s.UnpricedModels) != 2 {
+		t.Errorf("unpriced models = %v, want fable-5-1:2 future-9:1", s.UnpricedModels)
+	}
+	if s.Records != len(recs) {
+		t.Errorf("records = %d, want %d (unpriced rows still count toward totals)", s.Records, len(recs))
+	}
 }
 
 func TestParseDimensions(t *testing.T) {

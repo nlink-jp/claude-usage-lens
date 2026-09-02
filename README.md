@@ -131,6 +131,12 @@ Cowork records are never repriced — their cost is Anthropic's own audited
 table. Those records are stored at **$0**, so the warning is your signal to add
 the model to `core/pricing` and rerun `reprice`.
 
+The same gap is visible after the fact: `report --summary` counts the records
+in the period that carry tokens yet are stored at $0, by model (`unpriced_records`
+/ `unpriced_models` in `--json`). A non-zero count means a model was released
+after your build, or the table already knows it and `reprice` has not been run
+yet. The menu-bar app shows this count as a badge.
+
 ### Fast mode
 
 Claude Code's `/fast` toggle (Opus 5 and Opus 4.8) bills at a **$10 / $50**
@@ -213,9 +219,9 @@ override, drop a TOML file in your OS config dir (see
 [sources]                                   # when the inferred path is wrong
 code_root = "/custom/path/.claude/projects"
 
-[pricing.models."claude-sonnet-5"]          # e.g. cost at the introductory rate
-input_per_mtok  = 2.0
-output_per_mtok = 10.0
+[pricing.models."claude-opus-5"]            # e.g. a negotiated rate; other fields inherit
+input_per_mtok  = 4.0
+output_per_mtok = 20.0
 ```
 
 - **Precedence**: command-line flags > config file > built-in / OS-inferred defaults.

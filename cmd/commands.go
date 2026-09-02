@@ -474,7 +474,26 @@ func printSummary(w io.Writer, s aggregate.Summary) {
 	if s.PeakDay != "" {
 		fmt.Fprintf(w, "peak:    %s $%.2f    projection(30d): $%.2f\n", s.PeakDay, s.PeakUSD, s.Projection30USD)
 	}
+	if s.UnpricedRecords > 0 {
+		fmt.Fprintf(w, "unpriced: %d record(s) stored at $0 — %s\n", s.UnpricedRecords, formatUnpriced(s.UnpricedModels))
+		fmt.Fprintln(w, "  (model absent from the rate table when ingested; update the table, then run `reprice`)")
+	}
 	fmt.Fprintln(w, "\nCosts are an API list-price EQUIVALENT (notional), not an actual bill.")
+}
+
+// formatUnpriced renders an unpriced-model breakdown as "model (n), model (n)",
+// sorted by model id so the output is stable.
+func formatUnpriced(models map[string]int) string {
+	names := make([]string, 0, len(models))
+	for m := range models {
+		names = append(names, m)
+	}
+	sort.Strings(names)
+	parts := make([]string, len(names))
+	for i, m := range names {
+		parts[i] = fmt.Sprintf("%s (%d)", m, models[m])
+	}
+	return strings.Join(parts, ", ")
 }
 
 // periodTotals is the cross-record sum used by --compare.
@@ -644,7 +663,7 @@ func runModels(args []string) error {
 			fastIn, fastOut, r.CacheReadMultiplier, r.CacheWrite5mMultiplier, r.CacheWrite1hMultiplier, src)
 	}
 	tw.Flush()
-	fmt.Println("\nRates USD per 1M tokens (built-in table as of 2026-07-26).")
+	fmt.Println("\nRates USD per 1M tokens (built-in table as of 2026-09-02).")
 	fmt.Println("FAST-* is the `speed: \"fast\"` premium tier; \"—\" means the model has no fast mode.")
 	fmt.Println("Override via config.toml [pricing.models], then run `reprice` to apply to stored history.")
 	return nil
