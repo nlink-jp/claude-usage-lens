@@ -85,3 +85,8 @@ clean:
 BREW_KIND := formula
 BREW_DESC := Token usage and cost analyzer for Claude Code and Cowork logs
 include scripts/release-brew.mk
+
+## test-linux: run the test suite inside a Linux container (podman/docker)
+.PHONY: test-linux
+test-linux:
+	@scripts/test-linux.sh

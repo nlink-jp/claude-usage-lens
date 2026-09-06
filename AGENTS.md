@@ -25,6 +25,7 @@ implemented (launchd) — Windows/Linux return ErrDaemonUnsupported by design.
 ```sh
 make build      # → dist/claude-usage-lens  (NEVER `go build` directly)
 make test       # go test ./...
+make test-linux # same suite on Linux (container)
 make vet        # go vet on host + GOOS=windows + GOOS=linux
 make build-all  # cross-compile all platforms, CGO-free
 make verify-release  # gate: .notarized marker + freshness (run before upload)
