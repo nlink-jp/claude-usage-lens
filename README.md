@@ -78,7 +78,7 @@ claude-usage-lens daemon uninstall
 
 The actual subscription quota lives server-side: no local log or file carries a
 `utilization` / `resets_at` value, so the *real* remaining allowance cannot be
-collected from logs (see `docs/adr/0001-limit-calibration.md`). What can be had
+collected from logs (see `docs/en/adr/0001-limit-calibration.md`). What can be had
 is a **calibration**: read the official weekly percentage off Claude Code's
 `/usage` screen and record it —
 

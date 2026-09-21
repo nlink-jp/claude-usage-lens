@@ -51,7 +51,7 @@ core/                   reusable, OS-neutral core (imported by CLI and future GU
   audit/                parse Cowork audit.jsonl ground-truth cost [tested]
   platform/             build-tagged OS paths: paths_{darwin,windows,linux}.go [tested]
 docs/{en,ja}/           RFP (canonical design)
-docs/adr/               ADRs (0001 = real-quota calibration)
+docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
 ```
 
 ## Conventions & deliberate choices (gotchas)

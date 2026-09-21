@@ -76,7 +76,7 @@ claude-usage-lens daemon uninstall
 
 実際のサブスクリプション利用枠はサーバー側の状態で、ローカルのログ・ファイルの
 どこにも `utilization` / `resets_at` に相当する値は記録されていません。つまり
-「本当の残量」はログからは収集できません（`docs/adr/0001-limit-calibration.md`）。
+「本当の残量」はログからは収集できません（`docs/ja/adr/0001-limit-calibration.ja.md`）。
 代わりに **校正** を使います。Claude Code の `/usage` 画面に表示される公式の
 週次消費率を読み取り、記録してください:
 
