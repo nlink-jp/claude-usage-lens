@@ -28,7 +28,7 @@ make test       # go test ./...
 make test-linux # same suite on Linux (container)
 make vet        # go vet on host + GOOS=windows + GOOS=linux
 make build-all  # cross-compile all platforms, CGO-free
-make verify-release  # gate: .notarized marker + freshness (run before upload)
+make verify-release  # gate: notarized, fresh, runs at this version, clean linux archives (run before upload)
 ```
 
 Go 1.26+. No CGO, no external services, no network at runtime.
