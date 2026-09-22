@@ -7,6 +7,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`claude-opus-5-5` was priced at $0.** Claude Opus 5.5 was released after
+  v0.7.0 and was absent from the rate table, so every turn on it was stored as
+  free — the same gap as Opus 5 (v0.5.0) and Fable 5.1 (v0.7.0). Added at
+  **$4 / $20** per 1M tokens with **cache reads at 0.05×** ($0.20 / MTok, the
+  pricing page's second footnoted exception to 0.1×) and a **$8 / $40 fast
+  tier**. None of the three terms matches Opus 5, so its entry could not be
+  copied. Run `reprice` once after upgrading to fix rows already stored.
+- **Fast-mode prices are per model.** The fast tier was a single $10/$50
+  constant; Opus 5.5's $8/$40 made it per model. Opus 5 / Opus 4.8 are unchanged.
+
+### Added
+
+- **Retired models** still listed on the pricing page — Claude Opus 4.1 and
+  Opus 4 ($15 / $75), Sonnet 4 ($3 / $15) and Haiku 3.5 ($0.80 / $4) — so older
+  transcripts that mention them are not stored at $0.
+
+### Changed
+
+- The built-in table was re-verified against the pricing page on 2026-09-23
+  (`models` prints the date). All other prices are unchanged.
+
 - **`make verify-release` now fails closed.** Its last block chained unzip, the
   packaged binary's `--version` and `spctl` with `&&` and ended the whole chain
   in `|| true`, so a zip that did not unpack or a binary that did not run exited

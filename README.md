@@ -139,9 +139,9 @@ yet. The menu-bar app shows this count as a badge.
 
 ### Fast mode
 
-Claude Code's `/fast` toggle (Opus 5 and Opus 4.8) bills at a **$10 / $50**
-premium instead of $5 / $25, with the cache multipliers applying on top of the
-fast price. The transcript records it as `message.usage.speed`, and records are
+Claude Code's `/fast` toggle bills at a premium — **$10 / $50** instead of
+$5 / $25 on Opus 5 and Opus 4.8, **$8 / $40** instead of $4 / $20 on Opus 5.5 —
+with the cache multipliers applying on top of the fast price. The transcript records it as `message.usage.speed`, and records are
 priced accordingly — `models` shows the fast tier per model (`—` where the model
 has none, in which case a fast-flagged record bills at the standard rate, matching
 the API's own behaviour).
@@ -230,7 +230,8 @@ output_per_mtok = 20.0
   built-in entry, or from the standard cache multipliers for a model this build
   does not know — so a two-line override is enough. For an unknown model, check
   the pricing page's cache-read footnote: Fable 5.1 / Mythos 5.1 read at 0.025×
-  rather than the standard 0.1×, and a model priced like them needs
+  and Opus 5.5 at 0.05× rather than the standard 0.1×, and a model priced like
+  them needs
   `cache_read_multiplier` set explicitly. Run `reprice` afterwards to apply the
   change to already-stored records.
 - **`--config PATH`** points at a different file.

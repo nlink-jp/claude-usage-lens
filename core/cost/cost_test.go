@@ -193,3 +193,29 @@ func TestComputeRecord_Fable51CacheRead(t *testing.T) {
 		t.Errorf("non-cache-read usage: fable-5-1 = $%v, fable-5 = $%v, want both $92.50", f51, f5)
 	}
 }
+
+// Claude Opus 5.5 is the second per-model cache-read exception: $0.20/MTok,
+// 0.05× its $4 input (a shared 0.1× would double it). Its fast tier is $8/$40,
+// not Opus 5's $10/$50, and the 0.05× applies on top of the fast input price.
+func TestComputeRecord_Opus55(t *testing.T) {
+	tbl := pricing.Default()
+	cases := []struct {
+		name  string
+		speed string
+		usage model.Usage
+		want  float64
+	}{
+		{"cache read", "", model.Usage{CacheReadInputTokens: 1_000_000}, 0.20},
+		{"standard in/out/writes", "", model.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheCreation1h: 1_000_000, CacheCreation5m: 1_000_000}, 4 + 20 + 8 + 5},
+		{"fast in/out", pricing.SpeedFast, model.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000}, 8 + 40},
+		{"fast cache read", pricing.SpeedFast, model.Usage{CacheReadInputTokens: 1_000_000}, 0.40},
+	}
+	for _, c := range cases {
+		for _, m := range []string{"claude-opus-5-5", "claude-opus-5-5[1m]"} {
+			rec := model.UsageRecord{Model: m, ServiceTier: "standard", Speed: c.speed, Usage: c.usage}
+			if got := ComputeRecord(rec, tbl).ListPriceUSD; !almostEqual(got, c.want) {
+				t.Errorf("%s %s: $%v, want $%v", m, c.name, got, c.want)
+			}
+		}
+	}
+}

@@ -2,10 +2,10 @@ package pricing
 
 import "testing"
 
-// Prices as published on Anthropic's pricing page (verified 2026-09-02). The
+// Prices as published on Anthropic's pricing page (verified 2026-09-23). The
 // cache-read multiplier is per model: 0.1× everywhere except Claude Fable 5.1 /
-// Mythos 5.1, whose reads are footnoted at 0.025×. The write multipliers are
-// the same for every model.
+// Mythos 5.1 (0.025×) and Claude Opus 5.5 (0.05×), whose reads are footnoted.
+// The write multipliers are the same for every model.
 func TestDefaultTable_KnownModels(t *testing.T) {
 	tbl := Default()
 	cases := []struct {
@@ -17,11 +17,17 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		{"claude-fable-5-1", 10, 50, 0.025},
 		{"claude-mythos-5-1", 10, 50, 0.025},
 		{"claude-fable-5", 10, 50, 0.10},
+		{"claude-opus-5-5", 4, 20, 0.05},
 		{"claude-opus-5", 5, 25, 0.10},
 		{"claude-opus-4-8", 5, 25, 0.10},
 		{"claude-sonnet-5", 2, 10, 0.10}, // the scheduled rise to $3/$15 was cancelled
 		{"claude-sonnet-4-6", 3, 15, 0.10},
 		{"claude-haiku-4-5", 1, 5, 0.10},
+		// Retired on the first-party API, kept for older transcripts.
+		{"claude-opus-4-1", 15, 75, 0.10},
+		{"claude-opus-4", 15, 75, 0.10},
+		{"claude-sonnet-4", 3, 15, 0.10},
+		{"claude-3-5-haiku", 0.8, 4, 0.10},
 	}
 	for _, c := range cases {
 		r, ok := tbl.Lookup(c.model)
@@ -84,6 +90,22 @@ func TestLookup_DatedSnapshotSuffix(t *testing.T) {
 	if r, ok := tbl.Lookup("claude-fable-5-1[1m]"); !ok || r.CacheReadMultiplier != 0.025 {
 		t.Errorf("fable-5-1[1m] should resolve with the 0.025x cache read: %+v ok=%v", r, ok)
 	}
+	// Retired models resolve from their dated API IDs.
+	for m, in := range map[string]float64{
+		"claude-opus-4-1-20250805":  15,
+		"claude-opus-4-20250514":    15,
+		"claude-sonnet-4-20250514":  3,
+		"claude-3-5-haiku-20241022": 0.8,
+	} {
+		if r, ok := tbl.Lookup(m); !ok || r.InputPerMTok != in {
+			t.Errorf("%s should resolve at $%v input: %+v ok=%v", m, in, r, ok)
+		}
+	}
+	// Opus 5.5's trailing "-5" is not a date suffix either: it must resolve to
+	// its own entry, never fall through to Opus 5.
+	if r, ok := tbl.Lookup("claude-opus-5-5[1m]"); !ok || r.InputPerMTok != 4 || r.CacheReadMultiplier != 0.05 {
+		t.Errorf("opus-5-5[1m] should resolve to Opus 5.5's own rates: %+v ok=%v", r, ok)
+	}
 	// A non-date suffix must NOT be stripped.
 	if _, ok := tbl.Lookup("claude-opus-4-8-turbo"); ok {
 		t.Error("non-date suffix should not resolve")
@@ -109,29 +131,35 @@ func TestTierMultiplier(t *testing.T) {
 	}
 }
 
-// Fast mode is a $10/$50 premium tier, offered only on Opus 5 and Opus 4.8.
+// Fast mode is a premium tier offered only on Opus 5.5 ($8/$40) and Opus 5 /
+// Opus 4.8 ($10/$50) — the fast pair is per model, not a shared constant.
 // Opus 4.7 rejects a fast request and Opus 4.6 serves it at standard rates, so
 // neither may carry fast prices.
 func TestDefaultTable_FastModeTier(t *testing.T) {
 	tbl := Default()
 
-	for _, m := range []string{"claude-opus-5", "claude-opus-4-8"} {
-		r, ok := tbl.Lookup(m)
+	fast := []struct {
+		model           string
+		stdIn, stdOut   float64
+		fastIn, fastOut float64
+	}{
+		{"claude-opus-5-5", 4, 20, 8, 40},
+		{"claude-opus-5", 5, 25, 10, 50},
+		{"claude-opus-4-8", 5, 25, 10, 50},
+	}
+	for _, c := range fast {
+		r, ok := tbl.Lookup(c.model)
 		if !ok {
-			t.Fatalf("%s missing from the table", m)
+			t.Fatalf("%s missing from the table", c.model)
 		}
 		if !r.HasFast() {
-			t.Errorf("%s should offer fast mode", m)
+			t.Errorf("%s should offer fast mode", c.model)
 		}
-		if r.FastInputPerMTok != 10 || r.FastOutputPerMTok != 50 {
-			t.Errorf("%s fast rates = %v/%v, want 10/50", m, r.FastInputPerMTok, r.FastOutputPerMTok)
+		if in, out := r.Base(SpeedFast); in != c.fastIn || out != c.fastOut {
+			t.Errorf("%s Base(fast) = %v/%v, want %v/%v", c.model, in, out, c.fastIn, c.fastOut)
 		}
-		in, out := r.Base(SpeedFast)
-		if in != 10 || out != 50 {
-			t.Errorf("%s Base(fast) = %v/%v, want 10/50", m, in, out)
-		}
-		if in, out := r.Base(SpeedStandard); in != 5 || out != 25 {
-			t.Errorf("%s Base(standard) = %v/%v, want 5/25", m, in, out)
+		if in, out := r.Base(SpeedStandard); in != c.stdIn || out != c.stdOut {
+			t.Errorf("%s Base(standard) = %v/%v, want %v/%v", c.model, in, out, c.stdIn, c.stdOut)
 		}
 	}
 

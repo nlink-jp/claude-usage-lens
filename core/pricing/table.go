@@ -65,13 +65,15 @@ type Table map[string]Rates
 // Standard cache multipliers, relative to the base input rate: a cache read
 // costs 0.1×, a 5-minute ephemeral cache write 1.25×, and a 1-hour ephemeral
 // cache write 2×. The write multipliers hold for every model. The read
-// multiplier has one footnoted exception on Anthropic's pricing page: Claude
+// multiplier has footnoted exceptions on Anthropic's pricing page: Claude
 // Fable 5.1 and Claude Mythos 5.1 charge cache reads at 0.025× ($0.25/MTok
-// against a $10 base). That exception is what makes the multiplier a per-model
-// field rather than a constant — see withCacheRead.
+// against a $10 base), and Claude Opus 5.5 at 0.05× ($0.20/MTok against a $4
+// base). Those exceptions are what make the multiplier a per-model field
+// rather than a constant — see withCacheRead.
 const (
 	cacheReadMult        = 0.10
 	cacheReadMultFable51 = 0.025
+	cacheReadMultOpus55  = 0.05
 	cacheWrite5mMult     = 1.25
 	cacheWrite1hMult     = 2.00
 )
@@ -79,13 +81,6 @@ const (
 // webSearchPerReq is Anthropic's web-search charge: $10 per 1,000 searches =
 // $0.01 per request, the same for every model. Web fetch has no extra charge.
 const webSearchPerReq = 0.01
-
-// fastInputPerMTok / fastOutputPerMTok are the fast-mode premium prices, the
-// same for every model that offers the tier.
-const (
-	fastInputPerMTok  = 10.0
-	fastOutputPerMTok = 50.0
-)
 
 // StandardRates returns a Rates for the given base input/output prices with
 // Anthropic's standard cache multipliers and web-search charge. It is the
@@ -108,16 +103,18 @@ func rates(input, output float64) Rates {
 	}
 }
 
-// withFast marks a model as fast-mode capable at the premium prices.
-func withFast(r Rates) Rates {
-	r.FastInputPerMTok = fastInputPerMTok
-	r.FastOutputPerMTok = fastOutputPerMTok
+// withFast marks a model as fast-mode capable at the given premium prices.
+// The fast pair is per model: $10/$50 on Opus 5 / 4.8, $8/$40 on Opus 5.5.
+func withFast(r Rates, input, output float64) Rates {
+	r.FastInputPerMTok = input
+	r.FastOutputPerMTok = output
 	return r
 }
 
 // withCacheRead overrides the cache-read multiplier for a model whose reads are
-// priced off the standard 0.1× (Claude Fable 5.1 / Mythos 5.1 at 0.025×). The
-// write multipliers and everything else stay as rates() set them.
+// priced off the standard 0.1× (Claude Fable 5.1 / Mythos 5.1 at 0.025×,
+// Claude Opus 5.5 at 0.05×). The write multipliers and everything else stay as
+// rates() set them.
 func withCacheRead(r Rates, mult float64) Rates {
 	r.CacheReadMultiplier = mult
 	return r
@@ -126,7 +123,7 @@ func withCacheRead(r Rates, mult float64) Rates {
 // VerifiedOn is the date the built-in table was last checked, column by column
 // and footnotes included, against Anthropic's pricing page. `models` prints it
 // so a reader can judge how stale the table may be.
-const VerifiedOn = "2026-09-02"
+const VerifiedOn = "2026-09-23"
 
 // Default returns the built-in rate table.
 //
@@ -140,9 +137,14 @@ const VerifiedOn = "2026-09-02"
 // the "[1m]" variant tag is priced as the base model (confirmed empirically:
 // claude-opus-4-8[1m] reconstructs at exactly $5/$25).
 //
+// Claude Opus 5.5 is priced below Opus 5: $4/$20 with cache reads at 0.05×
+// ($0.20/MTok, footnoted) and a $8/$40 fast tier. Neither the read multiplier
+// nor the fast pair matches any other entry, so copying Opus 5 would be wrong
+// on three terms.
+//
 // Claude Fable 5.1 / Mythos 5.1 share Fable 5's $10/$50 and cache-write
-// multipliers but charge cache reads at 0.025× ($0.25/MTok) — the pricing
-// page's single footnoted exception to the 0.1× rule. In a long agentic
+// multipliers but charge cache reads at 0.025× ($0.25/MTok) — one of the
+// pricing page's footnoted exceptions to the 0.1× rule. In a long agentic
 // session cache reads dominate the token count, so this one multiplier moves
 // the notional cost by roughly 2×; copying Fable 5's entry would be wrong.
 //
@@ -150,10 +152,10 @@ const VerifiedOn = "2026-09-02"
 // through 2026-08-31, but the pricing page now states the scheduled increase
 // to $3/$15 will not occur, so $2/$10 is the standard price.
 //
-// Fast mode (`speed: "fast"`) is a $10/$50 premium tier offered on Opus 5 and
-// Opus 4.8 only. Opus 4.7 rejects the request outright and Opus 4.6 silently
-// serves it at standard speed and standard rates, so neither carries fast
-// prices here — a fast-flagged record on any other model bills as standard.
+// Fast mode (`speed: "fast"`) is a premium tier offered on Opus 5.5 ($8/$40)
+// and Opus 5 / Opus 4.8 ($10/$50) only. Opus 4.7 rejects the request outright
+// and Opus 4.6 silently serves it at standard speed and standard rates, so
+// neither carries fast prices here — a fast-flagged record on any other model bills as standard.
 func Default() Table {
 	return Table{
 		// Fable / Mythos tier — 5.1 has the cheaper cache reads (see above).
@@ -161,9 +163,10 @@ func Default() Table {
 		"claude-mythos-5-1": withCacheRead(rates(10, 50), cacheReadMultFable51),
 		"claude-fable-5":    rates(10, 50),
 		"claude-mythos-5":   rates(10, 50),
-		// Opus tier — 5 and 4.8 additionally offer fast mode.
-		"claude-opus-5":   withFast(rates(5, 25)),
-		"claude-opus-4-8": withFast(rates(5, 25)),
+		// Opus tier — 5.5, 5 and 4.8 additionally offer fast mode.
+		"claude-opus-5-5": withFast(withCacheRead(rates(4, 20), cacheReadMultOpus55), 8, 40),
+		"claude-opus-5":   withFast(rates(5, 25), 10, 50),
+		"claude-opus-4-8": withFast(rates(5, 25), 10, 50),
 		"claude-opus-4-7": rates(5, 25),
 		"claude-opus-4-6": rates(5, 25),
 		"claude-opus-4-5": rates(5, 25),
@@ -173,6 +176,13 @@ func Default() Table {
 		"claude-sonnet-4-5": rates(3, 15),
 		// Haiku tier
 		"claude-haiku-4-5": rates(1, 5),
+		// Retired on the first-party API (still listed on the pricing page) —
+		// kept so older transcripts are not stored at $0. Haiku 3.5's ID puts
+		// the family last (claude-3-5-haiku-20241022).
+		"claude-opus-4-1":  rates(15, 75),
+		"claude-opus-4":    rates(15, 75),
+		"claude-sonnet-4":  rates(3, 15),
+		"claude-3-5-haiku": rates(0.8, 4),
 	}
 }
 
