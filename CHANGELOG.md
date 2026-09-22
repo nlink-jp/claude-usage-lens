@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-23
+
 ### Fixed
 
 - **`claude-opus-5-5` was priced at $0.** Claude Opus 5.5 was released after
