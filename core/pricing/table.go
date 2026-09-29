@@ -123,7 +123,7 @@ func withCacheRead(r Rates, mult float64) Rates {
 // VerifiedOn is the date the built-in table was last checked, column by column
 // and footnotes included, against Anthropic's pricing page. `models` prints it
 // so a reader can judge how stale the table may be.
-const VerifiedOn = "2026-09-23"
+const VerifiedOn = "2026-09-29"
 
 // Default returns the built-in rate table.
 //
@@ -148,6 +148,11 @@ const VerifiedOn = "2026-09-23"
 // session cache reads dominate the token count, so this one multiplier moves
 // the notional cost by roughly 2×; copying Fable 5's entry would be wrong.
 //
+// Claude Sonnet 5.5 is priced like Sonnet 5 ($2/$10) with the standard 0.1×
+// cache read. Its cache-read price ($0.20/MTok) happens to equal Opus 5.5's,
+// but that is 0.1× of $2, not a footnoted exception — copying Opus 5.5's
+// 0.05× multiplier would halve its cache reads. It has no fast tier.
+//
 // claude-sonnet-5 is $2/$10: the launch price was announced as introductory
 // through 2026-08-31, but the pricing page now states the scheduled increase
 // to $3/$15 will not occur, so $2/$10 is the standard price.
@@ -171,6 +176,7 @@ func Default() Table {
 		"claude-opus-4-6": rates(5, 25),
 		"claude-opus-4-5": rates(5, 25),
 		// Sonnet tier
+		"claude-sonnet-5-5": rates(2, 10),
 		"claude-sonnet-5":   rates(2, 10),
 		"claude-sonnet-4-6": rates(3, 15),
 		"claude-sonnet-4-5": rates(3, 15),

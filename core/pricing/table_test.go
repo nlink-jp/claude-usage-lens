@@ -2,7 +2,7 @@ package pricing
 
 import "testing"
 
-// Prices as published on Anthropic's pricing page (verified 2026-09-23). The
+// Prices as published on Anthropic's pricing page (verified 2026-09-29). The
 // cache-read multiplier is per model: 0.1× everywhere except Claude Fable 5.1 /
 // Mythos 5.1 (0.025×) and Claude Opus 5.5 (0.05×), whose reads are footnoted.
 // The write multipliers are the same for every model.
@@ -20,7 +20,8 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		{"claude-opus-5-5", 4, 20, 0.05},
 		{"claude-opus-5", 5, 25, 0.10},
 		{"claude-opus-4-8", 5, 25, 0.10},
-		{"claude-sonnet-5", 2, 10, 0.10}, // the scheduled rise to $3/$15 was cancelled
+		{"claude-sonnet-5-5", 2, 10, 0.10}, // $0.20 cache read = 0.1× of $2, not Opus 5.5's 0.05×
+		{"claude-sonnet-5", 2, 10, 0.10},   // the scheduled rise to $3/$15 was cancelled
 		{"claude-sonnet-4-6", 3, 15, 0.10},
 		{"claude-haiku-4-5", 1, 5, 0.10},
 		// Retired on the first-party API, kept for older transcripts.
@@ -106,6 +107,12 @@ func TestLookup_DatedSnapshotSuffix(t *testing.T) {
 	if r, ok := tbl.Lookup("claude-opus-5-5[1m]"); !ok || r.InputPerMTok != 4 || r.CacheReadMultiplier != 0.05 {
 		t.Errorf("opus-5-5[1m] should resolve to Opus 5.5's own rates: %+v ok=%v", r, ok)
 	}
+	// Sonnet 5.5's [1m] variant resolves too. (Its rates equal Sonnet 5's, so
+	// this cannot tell the two entries apart; stripDateSuffix only strips an
+	// 8-digit suffix, which is what keeps "-5" from falling through.)
+	if r, ok := tbl.Lookup("claude-sonnet-5-5[1m]"); !ok || r != tbl["claude-sonnet-5-5"] {
+		t.Errorf("sonnet-5-5[1m] should resolve to Sonnet 5.5's own rates: %+v ok=%v", r, ok)
+	}
 	// A non-date suffix must NOT be stripped.
 	if _, ok := tbl.Lookup("claude-opus-4-8-turbo"); ok {
 		t.Error("non-date suffix should not resolve")
@@ -163,7 +170,7 @@ func TestDefaultTable_FastModeTier(t *testing.T) {
 		}
 	}
 
-	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1", "claude-mythos-5-1"} {
+	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1", "claude-mythos-5-1"} {
 		r, ok := tbl.Lookup(m)
 		if !ok {
 			t.Fatalf("%s missing from the table", m)

@@ -98,7 +98,7 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
 - **A model missing from the table costs $0, silently** — that is intended for
   `<synthetic>` and a bug for everything else (it is how `claude-opus-5` reported
   $0 in 2026-07, `claude-fable-5-1` in 2026-09, and `claude-opus-5-5` three
-  weeks later). Three guards exist, keep
+  weeks later; `claude-sonnet-5-5` was caught before its first turn). Three guards exist, keep
   them working: `ingest`/`reprice` warn about billable models absent from the
   table; `report --summary` counts stored `code` rows that carry tokens at $0
   (`unpriced_records` / `unpriced_models`, derived from the rows alone with no
@@ -117,7 +117,10 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
   5's entry would overstate Fable 5.1 by ~2×. `rates()` bakes the standard set
   and `withCacheRead` overrides it; the guards are
   `TestComputeRecord_Fable51CacheRead` and `TestComputeRecord_Opus55`. Re-check
-  the footnote when a new model lands — do not assume 0.1×.
+  the footnote when a new model lands — do not assume 0.1×, and derive the
+  multiplier as cache-read price ÷ input price rather than matching dollar
+  figures: Sonnet 5.5 and Opus 5.5 both read at $0.20/MTok, which is 0.1× of
+  $2 on one and 0.05× of $4 on the other (`TestComputeRecord_Sonnet55`).
 - **Fast mode is a price tier, not a model** — `speed: "fast"` bills $10/$50 on
   Opus 5 / 4.8 and $8/$40 on Opus 5.5, and nowhere else. The fast pair is per
   model (`withFast(r, in, out)`), not a shared constant. `Rates.Base(speed)`

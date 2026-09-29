@@ -219,3 +219,32 @@ func TestComputeRecord_Opus55(t *testing.T) {
 		}
 	}
 }
+
+// Claude Sonnet 5.5 reproduces its pricing-page row column by column: $2 input,
+// $2.50 / $4 cache writes, $0.20 cache read, $10 output. The $0.20 read equals
+// Opus 5.5's but is the standard 0.1× of $2, so it must not inherit Opus 5.5's
+// 0.05×. It has no fast tier: a fast-flagged record bills at standard rates.
+func TestComputeRecord_Sonnet55(t *testing.T) {
+	tbl := pricing.Default()
+	cases := []struct {
+		name  string
+		speed string
+		usage model.Usage
+		want  float64
+	}{
+		{"input", "", model.Usage{InputTokens: 1_000_000}, 2},
+		{"5m cache write", "", model.Usage{CacheCreation5m: 1_000_000}, 2.50},
+		{"1h cache write", "", model.Usage{CacheCreation1h: 1_000_000}, 4},
+		{"cache read", "", model.Usage{CacheReadInputTokens: 1_000_000}, 0.20},
+		{"output", "", model.Usage{OutputTokens: 1_000_000}, 10},
+		{"fast falls back to standard", pricing.SpeedFast, model.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000}, 2 + 10},
+	}
+	for _, c := range cases {
+		for _, m := range []string{"claude-sonnet-5-5", "claude-sonnet-5-5[1m]"} {
+			rec := model.UsageRecord{Model: m, ServiceTier: "standard", Speed: c.speed, Usage: c.usage}
+			if got := ComputeRecord(rec, tbl).ListPriceUSD; !almostEqual(got, c.want) {
+				t.Errorf("%s %s: $%v, want $%v", m, c.name, got, c.want)
+			}
+		}
+	}
+}

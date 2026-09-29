@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`claude-sonnet-5-5` is priced.** Claude Sonnet 5.5 was released after v0.8.0
+  and was absent from the rate table, so its turns would have been stored at $0
+  — the gap Opus 5 (v0.5.0), Fable 5.1 (v0.7.0) and Opus 5.5 (v0.8.0) each
+  opened. Added at **$2 / $10** per 1M tokens with the **standard 0.1× cache
+  read**. Its cache-read price ($0.20 / MTok) equals Opus 5.5's, but on a $2 base
+  that is the ordinary 0.1×, not Opus 5.5's footnoted 0.05×. It has no fast tier.
+  No other price changed; the table is re-verified against the pricing page
+  (`models` footer: 2026-09-29). No Sonnet 5.5 turn had been recorded on the
+  author's machine yet, so no `reprice` was needed there; if `report --summary`
+  shows `claude-sonnet-5-5` among the unpriced models, run `reprice` once.
 - **The Linux archives no longer carry macOS file metadata.** macOS `tar` wrote
   each bundled file's extended attributes (`com.apple.provenance`, and a Dropbox
   attribute where the tree is synced) into the `.tar.gz` twice: as AppleDouble
