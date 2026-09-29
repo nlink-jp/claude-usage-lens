@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-29
+
 ### Fixed
 
 - **`claude-sonnet-5-5` is priced.** Claude Sonnet 5.5 was released after v0.8.0
@@ -382,7 +384,11 @@ and `verify` against Cowork's own audit ground truth.
 - Windows / Linux support is **experimental** — source paths are inferred and
   unverified on real hardware.
 
-[Unreleased]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.3.0...v0.3.1
