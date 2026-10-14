@@ -74,6 +74,13 @@ type RateOverride struct {
 	// fast-flagged record bills at the standard rate.
 	FastInputPerMTok  *float64 `toml:"fast_input_per_mtok"`
 	FastOutputPerMTok *float64 `toml:"fast_output_per_mtok"`
+
+	// Long-context prices: a request whose prompt (input + cache reads + cache
+	// writes) is longer than long_context_threshold tokens pays the long_*
+	// pair. A threshold of 0, or no long_* price, means the model is flat.
+	LongContextThreshold *int64   `toml:"long_context_threshold"`
+	LongInputPerMTok     *float64 `toml:"long_input_per_mtok"`
+	LongOutputPerMTok    *float64 `toml:"long_output_per_mtok"`
 }
 
 // DefaultPath returns <OS config dir>/config.toml — where `doctor` says to put it.
@@ -147,10 +154,15 @@ func (c *Config) Validate() error {
 			{"web_fetch_per_req", ov.WebFetchPerReq},
 			{"fast_input_per_mtok", ov.FastInputPerMTok},
 			{"fast_output_per_mtok", ov.FastOutputPerMTok},
+			{"long_input_per_mtok", ov.LongInputPerMTok},
+			{"long_output_per_mtok", ov.LongOutputPerMTok},
 		} {
 			if f.val != nil && *f.val < 0 {
 				return fmt.Errorf("[pricing.models.%q] %s is negative (%v)", name, f.key, *f.val)
 			}
+		}
+		if ov.LongContextThreshold != nil && *ov.LongContextThreshold < 0 {
+			return fmt.Errorf("[pricing.models.%q] long_context_threshold is negative (%v)", name, *ov.LongContextThreshold)
 		}
 	}
 	return nil
@@ -195,6 +207,9 @@ func (c *Config) PricingTable(base pricing.Table) pricing.Table {
 		setIf(&r.WebFetchPerReq, ov.WebFetchPerReq)
 		setIf(&r.FastInputPerMTok, ov.FastInputPerMTok)
 		setIf(&r.FastOutputPerMTok, ov.FastOutputPerMTok)
+		setIf(&r.LongContextThreshold, ov.LongContextThreshold)
+		setIf(&r.LongInputPerMTok, ov.LongInputPerMTok)
+		setIf(&r.LongOutputPerMTok, ov.LongOutputPerMTok)
 		out[name] = r
 	}
 	return out
@@ -214,7 +229,7 @@ func (c *Config) OverriddenModels() []string {
 	return names
 }
 
-func setIf(dst *float64, src *float64) {
+func setIf[T any](dst *T, src *T) {
 	if src != nil {
 		*dst = *src
 	}

@@ -51,12 +51,19 @@
 
 # The full set of fields, for reference. fast_* is the `speed: "fast"` premium
 # tier (Opus 5.5 at $8/$40, Opus 5 / Opus 4.8 at $10/$50); leaving both at 0 means the model has no fast mode,
-# and a fast-flagged record is then billed at the standard rate.
+# and a fast-flagged record is then billed at the standard rate. long_* is the
+# prompt-length tier (Haiku 5.5: over 100,000 prompt tokens, $0.50/$2.50): a
+# request whose input + cache tokens exceed long_context_threshold pays the
+# long pair; a threshold of 0 means the model is priced flat — so long_* prices
+# without a threshold (on a model with no built-in tier) have no effect.
 # [pricing.models."claude-opus-5"]
 # input_per_mtok            = 5.0
 # output_per_mtok           = 25.0
 # fast_input_per_mtok       = 10.0
 # fast_output_per_mtok      = 50.0
+# long_context_threshold    = 0
+# long_input_per_mtok       = 0.0
+# long_output_per_mtok      = 0.0
 # cache_read_multiplier     = 0.1
 # cache_write_1h_multiplier = 2.0
 # cache_write_5m_multiplier = 1.25

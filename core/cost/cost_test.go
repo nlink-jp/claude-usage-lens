@@ -248,3 +248,53 @@ func TestComputeRecord_Sonnet55(t *testing.T) {
 		}
 	}
 }
+
+// Claude Haiku 5.5 reproduces both of its pricing-page rows. Each case keeps
+// its prompt on one side of the 100,000-token threshold, and the expected
+// dollar amounts are the page's own cells: $0.10 / $0.125 / $0.20 / $0.01 /
+// $0.50 under it, $0.50 / $0.625 / $1 / $0.05 / $2.50 over it.
+func TestComputeRecord_Haiku55(t *testing.T) {
+	tbl := pricing.Default()
+	cases := []struct {
+		name  string
+		usage model.Usage
+		want  float64
+	}{
+		// Under the threshold: 100k tokens of one kind, priced per MTok ÷ 10.
+		{"input, short", model.Usage{InputTokens: 100_000}, 0.10 / 10},
+		{"5m write, short", model.Usage{CacheCreation5m: 100_000}, 0.125 / 10},
+		{"1h write, short", model.Usage{CacheCreation1h: 100_000}, 0.20 / 10},
+		{"cache read, short", model.Usage{CacheReadInputTokens: 100_000}, 0.01 / 10},
+		{"output, short", model.Usage{InputTokens: 1, OutputTokens: 1_000_000}, 0.10/1e6 + 0.50},
+		// Over the threshold: 1M tokens of one kind.
+		{"input, long", model.Usage{InputTokens: 1_000_000}, 0.50},
+		{"5m write, long", model.Usage{CacheCreation5m: 1_000_000}, 0.625},
+		{"1h write, long", model.Usage{CacheCreation1h: 1_000_000}, 1},
+		{"cache read, long", model.Usage{CacheReadInputTokens: 1_000_000}, 0.05},
+		{"output, long", model.Usage{InputTokens: 100_001, OutputTokens: 1_000_000}, 100_001*0.50/1e6 + 2.50},
+		// The prompt counts cache reads and writes: 2 uncached input tokens on
+		// top of 120k cache reads is a long prompt, and the whole request —
+		// output included — moves to the higher pair.
+		{"cache tokens push the prompt over", model.Usage{InputTokens: 2, CacheReadInputTokens: 120_000, OutputTokens: 1_000},
+			2*0.50/1e6 + 120_000*0.05/1e6 + 1_000*2.50/1e6},
+		// Output tokens are not part of the prompt.
+		{"output does not count toward the prompt", model.Usage{InputTokens: 50_000, OutputTokens: 100_000},
+			50_000*0.10/1e6 + 100_000*0.50/1e6},
+	}
+	for _, c := range cases {
+		for _, m := range []string{"claude-haiku-5-5", "claude-haiku-5-5[1m]"} {
+			rec := model.UsageRecord{Model: m, ServiceTier: "standard", Usage: c.usage}
+			if got := ComputeRecord(rec, tbl).ListPriceUSD; !almostEqual(got, c.want) {
+				t.Errorf("%s %s: $%v, want $%v", m, c.name, got, c.want)
+			}
+		}
+	}
+}
+
+// Batch halves a long-context request like any other.
+func TestComputeRecord_Haiku55LongBatch(t *testing.T) {
+	rec := model.UsageRecord{Model: "claude-haiku-5-5", ServiceTier: "batch", Usage: model.Usage{InputTokens: 1_000_000}}
+	if got := ComputeRecord(rec, pricing.Default()).ListPriceUSD; !almostEqual(got, 0.25) {
+		t.Errorf("batch long input = $%v, want $0.25", got)
+	}
+}

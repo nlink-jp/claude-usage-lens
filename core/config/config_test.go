@@ -230,12 +230,12 @@ fast_output_per_mtok = 30.0
 	if !r.HasFast() {
 		t.Fatal("config should be able to add a fast tier")
 	}
-	if in, out := r.Base(pricing.SpeedFast); in != 6 || out != 30 {
+	if in, out := r.Base(pricing.SpeedFast, 0); in != 6 || out != 30 {
 		t.Errorf("Base(fast) = %v/%v, want 6/30", in, out)
 	}
 	// The standard pair is untouched — it stays whatever the built-in says.
 	builtin, _ := pricing.Default().Lookup("claude-sonnet-5")
-	if in, out := r.Base(pricing.SpeedStandard); in != builtin.InputPerMTok || out != builtin.OutputPerMTok {
+	if in, out := r.Base(pricing.SpeedStandard, 0); in != builtin.InputPerMTok || out != builtin.OutputPerMTok {
 		t.Errorf("Base(standard) = %v/%v, want the built-in %v/%v", in, out, builtin.InputPerMTok, builtin.OutputPerMTok)
 	}
 }
@@ -247,5 +247,52 @@ fast_input_per_mtok = -1.0
 `)
 	if _, _, _, err := Load(path); err == nil {
 		t.Fatal("negative fast rate should be rejected")
+	}
+}
+
+// A long-context tier is overridable field by field: changing only the long
+// prices keeps the built-in threshold, and a model with no built-in tier gets
+// one when the threshold and a long price are both set.
+func TestPricingTable_LongContextOverride(t *testing.T) {
+	path := write(t, `
+[pricing.models."claude-haiku-5-5"]
+long_output_per_mtok = 3.0
+
+[pricing.models."claude-sonnet-5"]
+long_context_threshold = 200000
+long_input_per_mtok    = 4.0
+long_output_per_mtok   = 20.0
+`)
+	cfg, _, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl := cfg.PricingTable(pricing.Default())
+
+	h, _ := tbl.Lookup("claude-haiku-5-5")
+	if h.LongContextThreshold != 100_000 || h.LongInputPerMTok != 0.50 || h.LongOutputPerMTok != 3.0 {
+		t.Errorf("haiku-5-5 partial override = %+v, want threshold 100000, long 0.50/3.0", h)
+	}
+
+	s, _ := tbl.Lookup("claude-sonnet-5")
+	if !s.HasLongContext() {
+		t.Fatal("config should be able to add a long-context tier")
+	}
+	if in, out := s.Base(pricing.SpeedStandard, 200_001); in != 4 || out != 20 {
+		t.Errorf("sonnet-5 Base(standard, 200001) = %v/%v, want 4/20", in, out)
+	}
+	if in, out := s.Base(pricing.SpeedStandard, 200_000); in != 2 || out != 10 {
+		t.Errorf("sonnet-5 Base(standard, 200000) = %v/%v, want the built-in 2/10", in, out)
+	}
+}
+
+func TestLoad_NegativeLongContextIsAnError(t *testing.T) {
+	for _, body := range []string{
+		"[pricing.models.\"claude-haiku-5-5\"]\nlong_context_threshold = -1\n",
+		"[pricing.models.\"claude-haiku-5-5\"]\nlong_input_per_mtok = -0.5\n",
+	} {
+		if _, _, _, err := Load(write(t, body)); err == nil {
+			t.Errorf("should be rejected:\n%s", body)
+		}
 	}
 }

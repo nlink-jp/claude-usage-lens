@@ -13,11 +13,13 @@ const perMillion = 1_000_000.0
 // Compute returns the notional (API list-price) cost of a single usage record
 // given the model's rates, service tier, and speed.
 //
-// speed selects the base price pair — fast mode is a premium tier on the same
-// model — and the cache multipliers then apply on top of whichever pair won, so
-// a cache read during a fast-mode turn costs 0.1× the *fast* input price.
+// speed and the prompt length select the base price pair — fast mode and the
+// long-context tier (Claude Haiku 5.5 over 100,000 prompt tokens) are premium
+// pairs on the same model — and the cache multipliers then apply on top of
+// whichever pair won, so a cache read during a fast-mode turn costs 0.1× the
+// *fast* input price.
 //
-// Token-type accounting (`in` / `out` = the effective prices for this speed):
+// Token-type accounting (`in` / `out` = the effective prices for this request):
 //
 //	input      = InputTokens          × in
 //	output     = OutputTokens         × out
@@ -33,7 +35,7 @@ func Compute(u model.Usage, r pricing.Rates, tier, speed string) float64 {
 	perTok := func(n int64, ratePerMTok float64) float64 {
 		return float64(n) / perMillion * ratePerMTok
 	}
-	in, out := r.Base(speed)
+	in, out := r.Base(speed, u.PromptTokens())
 	subtotal := perTok(u.InputTokens, in) +
 		perTok(u.OutputTokens, out) +
 		perTok(u.CacheReadInputTokens, in*r.CacheReadMultiplier) +

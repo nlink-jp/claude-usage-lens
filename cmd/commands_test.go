@@ -9,6 +9,7 @@ import (
 	"github.com/nlink-jp/claude-usage-lens/core/aggregate"
 	"github.com/nlink-jp/claude-usage-lens/core/config"
 	"github.com/nlink-jp/claude-usage-lens/core/platform"
+	"github.com/nlink-jp/claude-usage-lens/core/pricing"
 )
 
 // The summary's unpriced line: absent when nothing is unpriced, otherwise the
@@ -143,5 +144,20 @@ func TestResolveRoots_Precedence(t *testing.T) {
 	// A blank flag is "not supplied", not "set to empty".
 	if got := resolveRoots(def, fromFile, "   ", ""); got.CodeRoot != "/file/code" {
 		t.Errorf("whitespace flag should be ignored, got %q", got.CodeRoot)
+	}
+}
+
+func TestLongContextLabel(t *testing.T) {
+	tbl := pricing.Default()
+	if got := longContextLabel(tbl["claude-haiku-5-5"]); got != ">100k $0.50/$2.50" {
+		t.Errorf("haiku-5-5 label = %q", got)
+	}
+	if got := longContextLabel(tbl["claude-opus-5-5"]); got != "—" {
+		t.Errorf("flat model label = %q, want —", got)
+	}
+	r := tbl["claude-haiku-5-5"]
+	r.LongContextThreshold = 123_456
+	if got := longContextLabel(r); got != ">123456 $0.50/$2.50" {
+		t.Errorf("non-round threshold label = %q", got)
 	}
 }

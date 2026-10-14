@@ -150,6 +150,17 @@ Records ingested before this was modeled have no stored speed and count as
 standard. Re-ingesting cannot recover it — those bytes are already consumed — so
 only turns ingested from now on are speed-accurate.
 
+### Long-context pricing (Claude Haiku 5.5)
+
+The pricing page lists a single price pair per model — the same at any context
+length — for every model except **Claude Haiku 5.5**, which is priced by prompt
+length: **$0.10 / $0.50** for a prompt of up
+to 100,000 tokens, **$0.50 / $2.50** for one over it. The prompt counts every
+input token — uncached input, cache reads and cache writes — and each request
+is priced on its own, so the tier is chosen per record; output tokens follow
+the same tier. The cache multipliers apply on top of whichever pair applies.
+`models` shows the tier in its `LONG-CONTEXT` column (`—` for flat pricing).
+
 ### Accuracy
 
 `verify` compares our computed notional cost against Cowork's own
@@ -231,9 +242,10 @@ output_per_mtok = 20.0
   does not know — so a two-line override is enough. For an unknown model, check
   the pricing page's cache-read footnote: Fable 5.1 / Mythos 5.1 read at 0.025×
   and Opus 5.5 at 0.05× rather than the standard 0.1×, and a model priced like
-  them needs
-  `cache_read_multiplier` set explicitly. Run `reprice` afterwards to apply the
-  change to already-stored records.
+  them needs `cache_read_multiplier` set explicitly. A model priced
+  by prompt length takes `long_context_threshold` plus `long_input_per_mtok` /
+  `long_output_per_mtok`. Run `reprice` afterwards to apply the change to
+  already-stored records.
 - **`--config PATH`** points at a different file.
 - **Unknown keys are an error**, not silently ignored: a typo'd setting that
   looks like it works is worse than a loud failure.

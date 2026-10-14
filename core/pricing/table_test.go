@@ -2,7 +2,7 @@ package pricing
 
 import "testing"
 
-// Prices as published on Anthropic's pricing page (verified 2026-09-29). The
+// Prices as published on Anthropic's pricing page (verified 2026-10-14). The
 // cache-read multiplier is per model: 0.1× everywhere except Claude Fable 5.1 /
 // Mythos 5.1 (0.025×) and Claude Opus 5.5 (0.05×), whose reads are footnoted.
 // The write multipliers are the same for every model.
@@ -23,6 +23,7 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		{"claude-sonnet-5-5", 2, 10, 0.10}, // $0.20 cache read = 0.1× of $2, not Opus 5.5's 0.05×
 		{"claude-sonnet-5", 2, 10, 0.10},   // the scheduled rise to $3/$15 was cancelled
 		{"claude-sonnet-4-6", 3, 15, 0.10},
+		{"claude-haiku-5-5", 0.10, 0.50, 0.10}, // under 100k prompt tokens; see the long-context test
 		{"claude-haiku-4-5", 1, 5, 0.10},
 		// Retired on the first-party API, kept for older transcripts.
 		{"claude-opus-4-1", 15, 75, 0.10},
@@ -162,15 +163,15 @@ func TestDefaultTable_FastModeTier(t *testing.T) {
 		if !r.HasFast() {
 			t.Errorf("%s should offer fast mode", c.model)
 		}
-		if in, out := r.Base(SpeedFast); in != c.fastIn || out != c.fastOut {
+		if in, out := r.Base(SpeedFast, 0); in != c.fastIn || out != c.fastOut {
 			t.Errorf("%s Base(fast) = %v/%v, want %v/%v", c.model, in, out, c.fastIn, c.fastOut)
 		}
-		if in, out := r.Base(SpeedStandard); in != c.stdIn || out != c.stdOut {
+		if in, out := r.Base(SpeedStandard, 0); in != c.stdIn || out != c.stdOut {
 			t.Errorf("%s Base(standard) = %v/%v, want %v/%v", c.model, in, out, c.stdIn, c.stdOut)
 		}
 	}
 
-	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1", "claude-mythos-5-1"} {
+	for _, m := range []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-fable-5", "claude-fable-5-1", "claude-mythos-5-1"} {
 		r, ok := tbl.Lookup(m)
 		if !ok {
 			t.Fatalf("%s missing from the table", m)
@@ -179,7 +180,7 @@ func TestDefaultTable_FastModeTier(t *testing.T) {
 			t.Errorf("%s must not have a fast tier", m)
 		}
 		// A fast-flagged record on such a model bills at standard rates.
-		in, _ := r.Base(SpeedFast)
+		in, _ := r.Base(SpeedFast, 0)
 		if in != r.InputPerMTok {
 			t.Errorf("%s Base(fast) = %v, want the standard %v", m, in, r.InputPerMTok)
 		}
@@ -191,5 +192,74 @@ func TestLookup_VariantKeepsFastRates(t *testing.T) {
 	r, ok := Default().Lookup("claude-opus-5[1m]")
 	if !ok || !r.HasFast() {
 		t.Errorf("opus-5[1m] should resolve with its fast tier: %+v ok=%v", r, ok)
+	}
+}
+
+// Claude Haiku 5.5 is the only model priced by prompt length: $0.10/$0.50 up
+// to 100,000 prompt tokens, $0.50/$2.50 over it. "Over" is strict, so exactly
+// 100,000 stays in the lower tier.
+func TestDefaultTable_Haiku55LongContextTier(t *testing.T) {
+	r, ok := Default().Lookup("claude-haiku-5-5")
+	if !ok {
+		t.Fatal("claude-haiku-5-5 missing from the table")
+	}
+	if !r.HasLongContext() || r.LongContextThreshold != 100_000 {
+		t.Fatalf("haiku-5-5 should have a 100k long-context tier: %+v", r)
+	}
+	cases := []struct {
+		prompt  int64
+		in, out float64
+	}{
+		{0, 0.10, 0.50},
+		{100_000, 0.10, 0.50},
+		{100_001, 0.50, 2.50},
+		{900_000, 0.50, 2.50},
+	}
+	for _, c := range cases {
+		if in, out := r.Base(SpeedStandard, c.prompt); in != c.in || out != c.out {
+			t.Errorf("Base(standard, %d) = %v/%v, want %v/%v", c.prompt, in, out, c.in, c.out)
+		}
+	}
+	// No fast tier: a fast-flagged record still follows the prompt-length tier.
+	if in, out := r.Base(SpeedFast, 200_000); in != 0.50 || out != 2.50 {
+		t.Errorf("Base(fast, 200k) = %v/%v, want the long pair 0.50/2.50", in, out)
+	}
+	// The variant tags must keep the tier.
+	for _, m := range []string{"claude-haiku-5-5[1m]", "claude-haiku-5-5-20261007"} {
+		if v, ok := Default().Lookup(m); !ok || v != r {
+			t.Errorf("%s should resolve to Haiku 5.5's own rates: %+v ok=%v", m, v, ok)
+		}
+	}
+}
+
+// Every other model is flat across its context window.
+func TestDefaultTable_OnlyHaiku55HasLongContext(t *testing.T) {
+	for m, r := range Default() {
+		if r.HasLongContext() != (m == "claude-haiku-5-5") {
+			t.Errorf("%s: HasLongContext = %v", m, r.HasLongContext())
+		}
+	}
+}
+
+// A threshold without prices is not a tier — it must not bill long prompts at $0.
+func TestHasLongContext_ThresholdWithoutPrices(t *testing.T) {
+	r := rates(1, 5)
+	r.LongContextThreshold = 100_000
+	if r.HasLongContext() {
+		t.Fatal("a threshold with no long prices should not count as a tier")
+	}
+	if in, out := r.Base(SpeedStandard, 500_000); in != 1 || out != 5 {
+		t.Errorf("Base = %v/%v, want the standard 1/5", in, out)
+	}
+}
+
+// Fast wins over the long-context tier: fast pricing covers the full window.
+func TestBase_FastWinsOverLongContext(t *testing.T) {
+	r := withLongContext(withFast(rates(1, 5), 2, 10), 100_000, 3, 15)
+	if in, out := r.Base(SpeedFast, 500_000); in != 2 || out != 10 {
+		t.Errorf("Base(fast, 500k) = %v/%v, want the fast 2/10", in, out)
+	}
+	if in, out := r.Base(SpeedStandard, 500_000); in != 3 || out != 15 {
+		t.Errorf("Base(standard, 500k) = %v/%v, want the long 3/15", in, out)
 	}
 }

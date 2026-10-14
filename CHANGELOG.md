@@ -5,6 +5,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`claude-haiku-5-5` is priced, including its long-context tier.** Claude
+  Haiku 5.5 (released 2026-10-07) was absent from the rate table, so its turns
+  would have been stored at $0 — the gap each new model has opened. It is the
+  first model priced by prompt length: **$0.10 / $0.50** per 1M tokens for a
+  prompt of up to 100,000 tokens and **$0.50 / $2.50** for one over it, with
+  the standard cache multipliers on top of either pair ($0.125 / $0.20 / $0.01
+  and $0.625 / $1 / $0.05). The prompt counts uncached input, cache reads and
+  cache writes, and each request is priced on its own, so the tier is chosen
+  per record and output follows it. No fast tier. No Haiku 5.5 turn had been
+  recorded on the author's machine yet.
+- **Long-context tiers in config.** `[pricing.models."<id>"]` accepts
+  `long_context_threshold`, `long_input_per_mtok` and `long_output_per_mtok`,
+  inheriting field by field like every other rate. A threshold with no long
+  price is ignored rather than billing long prompts at $0.
+- **`models` shows a `LONG-CONTEXT` column** (`>100k $0.50/$2.50`, or `—` for
+  flat pricing). `models --json` gains `LongContextThreshold`,
+  `LongInputPerMTok` and `LongOutputPerMTok`.
+
 ## [0.8.1] - 2026-09-29
 
 ### Fixed

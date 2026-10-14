@@ -47,6 +47,13 @@ type Usage struct {
 	WebFetchRequests     int64 // server_tool_use.web_fetch_requests
 }
 
+// PromptTokens is the request's prompt length as the pricing page counts it
+// for a long-context tier: every input token, including cache reads and cache
+// writes. Output tokens are not part of the prompt.
+func (u Usage) PromptTokens() int64 {
+	return u.InputTokens + u.CacheReadInputTokens + u.CacheCreation1h + u.CacheCreation5m
+}
+
 // UsageRecord is one deduplicated assistant turn with its provenance.
 // Project is taken from the in-record `cwd` — never decoded from the
 // platform-specific directory name — so records stay OS-neutral.

@@ -20,6 +20,15 @@ type Rates struct {
 	// is also what the API does on a model that silently ignores the request.
 	FastInputPerMTok  float64
 	FastOutputPerMTok float64
+
+	// Long-context prices. A request whose prompt is longer than
+	// LongContextThreshold tokens pays this pair instead of the base one, and
+	// the cache multipliers apply on top of it. A zero threshold means the
+	// model is priced flat across its whole context window (every model except
+	// Claude Haiku 5.5).
+	LongContextThreshold int64
+	LongInputPerMTok     float64
+	LongOutputPerMTok    float64
 }
 
 // Speed selects which price pair applies to a record.
@@ -28,17 +37,24 @@ const (
 	SpeedFast     = "fast"
 )
 
-// Base returns the input/output prices in effect for the given speed. Fast mode
-// is a premium on the same model, so the cache multipliers apply on top of
+// Base returns the input/output prices in effect for a request of the given
+// speed whose prompt is promptTokens long. Fast mode and the long-context tier
+// are both premiums on the same model, so the cache multipliers apply on top of
 // whichever pair this returns — a cache read during a fast-mode turn costs
 // 0.1× the *fast* input price, not the standard one.
 //
 // An unrecognised speed, or fast on a model with no fast tier, falls back to
 // the standard pair: over-charging usage we cannot confirm would be worse than
 // reporting it at the rate the API would have billed.
-func (r Rates) Base(speed string) (input, output float64) {
+//
+// Fast wins over the long-context tier: the pricing page states fast-mode
+// pricing applies across the full context window. No model has both today.
+func (r Rates) Base(speed string, promptTokens int64) (input, output float64) {
 	if speed == SpeedFast && r.HasFast() {
 		return r.FastInputPerMTok, r.FastOutputPerMTok
+	}
+	if r.HasLongContext() && promptTokens > r.LongContextThreshold {
+		return r.LongInputPerMTok, r.LongOutputPerMTok
 	}
 	return r.InputPerMTok, r.OutputPerMTok
 }
@@ -46,6 +62,13 @@ func (r Rates) Base(speed string) (input, output float64) {
 // HasFast reports whether the model has a fast-mode price tier.
 func (r Rates) HasFast() bool {
 	return r.FastInputPerMTok > 0 || r.FastOutputPerMTok > 0
+}
+
+// HasLongContext reports whether the model has a long-context price tier. A
+// threshold without prices is not a tier: billing those requests at $0 would
+// be the silent undercount this table exists to prevent.
+func (r Rates) HasLongContext() bool {
+	return r.LongContextThreshold > 0 && (r.LongInputPerMTok > 0 || r.LongOutputPerMTok > 0)
 }
 
 // TierMultiplier scales the whole cost by service tier.
@@ -120,10 +143,20 @@ func withCacheRead(r Rates, mult float64) Rates {
 	return r
 }
 
+// withLongContext gives a model a second price pair for requests whose prompt
+// is longer than threshold tokens. Only Claude Haiku 5.5 has one: $0.50/$2.50
+// over 100,000 prompt tokens, with the usual cache multipliers on top.
+func withLongContext(r Rates, threshold int64, input, output float64) Rates {
+	r.LongContextThreshold = threshold
+	r.LongInputPerMTok = input
+	r.LongOutputPerMTok = output
+	return r
+}
+
 // VerifiedOn is the date the built-in table was last checked, column by column
 // and footnotes included, against Anthropic's pricing page. `models` prints it
 // so a reader can judge how stale the table may be.
-const VerifiedOn = "2026-09-29"
+const VerifiedOn = "2026-10-14"
 
 // Default returns the built-in rate table.
 //
@@ -131,11 +164,19 @@ const VerifiedOn = "2026-09-29"
 // pricing page. Override or extend via config.toml [pricing]. Unknown models
 // (including "<synthetic>") are absent by design → zero cost.
 //
-// No long-context tier: the pricing page states Claude 4.6 and later models
-// include the full 1M context window at standard pricing — a 900k-token request
-// costs the same per token as a 9k one. So a flat per-model rate is correct, and
-// the "[1m]" variant tag is priced as the base model (confirmed empirically:
+// Long context is flat except on Claude Haiku 5.5: the pricing page states
+// Claude 4.6 and later models other than Haiku 5.5 include the full 1M context
+// window at standard pricing — a 900k-token request costs the same per token
+// as a 9k one. So a flat per-model rate is correct for them, and the "[1m]"
+// variant tag is priced as the base model (confirmed empirically:
 // claude-opus-4-8[1m] reconstructs at exactly $5/$25).
+//
+// Claude Haiku 5.5 is priced by prompt length: $0.10/$0.50 for a prompt of up
+// to 100,000 tokens, $0.50/$2.50 for one over it. The prompt counts every
+// input token — uncached input, cache reads and cache writes — and each
+// request is priced on its own, so the tier is chosen per record. Its cache
+// multipliers are the standard ones in both tiers ($0.125 / $0.20 / $0.01
+// under the threshold, $0.625 / $1 / $0.05 over it). It has no fast tier.
 //
 // Claude Opus 5.5 is priced below Opus 5: $4/$20 with cache reads at 0.05×
 // ($0.20/MTok, footnoted) and a $8/$40 fast tier. Neither the read multiplier
@@ -180,7 +221,8 @@ func Default() Table {
 		"claude-sonnet-5":   rates(2, 10),
 		"claude-sonnet-4-6": rates(3, 15),
 		"claude-sonnet-4-5": rates(3, 15),
-		// Haiku tier
+		// Haiku tier — 5.5 has a long-context price pair (see above).
+		"claude-haiku-5-5": withLongContext(rates(0.10, 0.50), 100_000, 0.50, 2.50),
 		"claude-haiku-4-5": rates(1, 5),
 		// Retired on the first-party API (still listed on the pricing page) —
 		// kept so older transcripts are not stored at $0. Haiku 3.5's ID puts

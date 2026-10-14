@@ -98,7 +98,7 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
 - **A model missing from the table costs $0, silently** — that is intended for
   `<synthetic>` and a bug for everything else (it is how `claude-opus-5` reported
   $0 in 2026-07, `claude-fable-5-1` in 2026-09, and `claude-opus-5-5` three
-  weeks later; `claude-sonnet-5-5` was caught before its first turn). Three guards exist, keep
+  weeks later; `claude-sonnet-5-5` and `claude-haiku-5-5` were caught before their first turn). Three guards exist, keep
   them working: `ingest`/`reprice` warn about billable models absent from the
   table; `report --summary` counts stored `code` rows that carry tokens at $0
   (`unpriced_records` / `unpriced_models`, derived from the rows alone with no
@@ -121,9 +121,22 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
   multiplier as cache-read price ÷ input price rather than matching dollar
   figures: Sonnet 5.5 and Opus 5.5 both read at $0.20/MTok, which is 0.1× of
   $2 on one and 0.05× of $4 on the other (`TestComputeRecord_Sonnet55`).
+- **Long context is a price tier on one model** — Claude Haiku 5.5 bills
+  $0.10/$0.50 up to 100,000 prompt tokens and $0.50/$2.50 over it; the page
+  lists one pair for every other model (it states flat 1M pricing only for 4.6+
+  models — older ones are flat by omission). Prompt length is `Usage.PromptTokens()` = input + cache reads +
+  cache writes (output excluded), compared with `>` (exactly 100,000 is the
+  lower tier), and is judged per record: a transcript record's top-level
+  `usage` is one request, never a sum — measured 2026-10-14 on 120,586 records
+  carrying `iterations[]`, the top level equalled the last iteration in every
+  one (two iterations only on a model fallback; no Claude Code record carried
+  server-tool use). `Rates.Base(speed, prompt)`
+  picks the pair; fast wins over long (fast covers the full window), and the
+  cache multipliers apply on top. A threshold without long prices is not a
+  tier (`HasLongContext`), so it can never bill a long prompt at $0.
 - **Fast mode is a price tier, not a model** — `speed: "fast"` bills $10/$50 on
   Opus 5 / 4.8 and $8/$40 on Opus 5.5, and nowhere else. The fast pair is per
-  model (`withFast(r, in, out)`), not a shared constant. `Rates.Base(speed)`
+  model (`withFast(r, in, out)`), not a shared constant. `Rates.Base(speed, prompt)`
   picks the pair and the cache multipliers apply on top of it, so a fast cache read is 0.1× the *fast* input price. A
   fast-flagged record on a model with no fast tier falls back to standard, which
   is what the API does too (Opus 4.6 serves the request at standard rates; Opus
