@@ -90,15 +90,16 @@ type Table map[string]Rates
 // cache write 2×. The write multipliers hold for every model. The read
 // multiplier has footnoted exceptions on Anthropic's pricing page: Claude
 // Fable 5.1 and Claude Mythos 5.1 charge cache reads at 0.025× ($0.25/MTok
-// against a $10 base), and Claude Opus 5.5 at 0.05× ($0.20/MTok against a $4
-// base). Those exceptions are what make the multiplier a per-model field
-// rather than a constant — see withCacheRead.
+// against a $10 base), and Claude Opus 5.5 and Claude Sonnet 5.5 at 0.05×
+// ($0.20/MTok against a $4 base, $0.10/MTok against a $2 base). Those
+// exceptions are what make the multiplier a per-model field rather than a
+// constant — see withCacheRead.
 const (
-	cacheReadMult        = 0.10
-	cacheReadMultFable51 = 0.025
-	cacheReadMultOpus55  = 0.05
-	cacheWrite5mMult     = 1.25
-	cacheWrite1hMult     = 2.00
+	cacheReadMult             = 0.10
+	cacheReadMultFable51      = 0.025
+	cacheReadMultOpusSonnet55 = 0.05
+	cacheWrite5mMult          = 1.25
+	cacheWrite1hMult          = 2.00
 )
 
 // webSearchPerReq is Anthropic's web-search charge: $10 per 1,000 searches =
@@ -136,8 +137,8 @@ func withFast(r Rates, input, output float64) Rates {
 
 // withCacheRead overrides the cache-read multiplier for a model whose reads are
 // priced off the standard 0.1× (Claude Fable 5.1 / Mythos 5.1 at 0.025×,
-// Claude Opus 5.5 at 0.05×). The write multipliers and everything else stay as
-// rates() set them.
+// Claude Opus 5.5 / Sonnet 5.5 at 0.05×). The write multipliers and everything
+// else stay as rates() set them.
 func withCacheRead(r Rates, mult float64) Rates {
 	r.CacheReadMultiplier = mult
 	return r
@@ -189,10 +190,11 @@ const VerifiedOn = "2026-10-14"
 // session cache reads dominate the token count, so this one multiplier moves
 // the notional cost by roughly 2×; copying Fable 5's entry would be wrong.
 //
-// Claude Sonnet 5.5 is priced like Sonnet 5 ($2/$10) with the standard 0.1×
-// cache read. Its cache-read price ($0.20/MTok) happens to equal Opus 5.5's,
-// but that is 0.1× of $2, not a footnoted exception — copying Opus 5.5's
-// 0.05× multiplier would halve its cache reads. It has no fast tier.
+// Claude Sonnet 5.5 is priced like Sonnet 5 ($2/$10) but, like Opus 5.5,
+// charges cache reads at 0.05× ($0.10/MTok). The page listed it at the
+// standard 0.1× ($0.20/MTok) when it was checked on 2026-09-29; it now lists
+// $0.10 in the table and names Sonnet 5.5 in the footnote. Copying Sonnet 5's
+// entry would double its cache reads. It has no fast tier.
 //
 // claude-sonnet-5 is $2/$10: the launch price was announced as introductory
 // through 2026-08-31, but the pricing page now states the scheduled increase
@@ -210,14 +212,14 @@ func Default() Table {
 		"claude-fable-5":    rates(10, 50),
 		"claude-mythos-5":   rates(10, 50),
 		// Opus tier — 5.5, 5 and 4.8 additionally offer fast mode.
-		"claude-opus-5-5": withFast(withCacheRead(rates(4, 20), cacheReadMultOpus55), 8, 40),
+		"claude-opus-5-5": withFast(withCacheRead(rates(4, 20), cacheReadMultOpusSonnet55), 8, 40),
 		"claude-opus-5":   withFast(rates(5, 25), 10, 50),
 		"claude-opus-4-8": withFast(rates(5, 25), 10, 50),
 		"claude-opus-4-7": rates(5, 25),
 		"claude-opus-4-6": rates(5, 25),
 		"claude-opus-4-5": rates(5, 25),
 		// Sonnet tier
-		"claude-sonnet-5-5": rates(2, 10),
+		"claude-sonnet-5-5": withCacheRead(rates(2, 10), cacheReadMultOpusSonnet55),
 		"claude-sonnet-5":   rates(2, 10),
 		"claude-sonnet-4-6": rates(3, 15),
 		"claude-sonnet-4-5": rates(3, 15),

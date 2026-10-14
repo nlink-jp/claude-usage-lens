@@ -234,7 +234,7 @@ output_per_mtok = 20.0
 - **単価**: `[pricing.models."<id>"]`。省略したフィールドは **継承** されます
   （組み込みエントリから、未知のモデルなら標準キャッシュ倍率から）。したがって
   2行だけの上書きで十分です。未知のモデルを足すときは価格ページのキャッシュ読み取り
-  の脚注を確認してください。Fable 5.1 / Mythos 5.1 は 0.025×、Opus 5.5
+  の脚注を確認してください。Fable 5.1 / Mythos 5.1 は 0.025×、Opus 5.5 / Sonnet 5.5
   は 0.05× で標準の 0.1× ではありません。同じ扱いのモデルには `cache_read_multiplier`
   の明示が必要です。プロンプト長で単価が変わるモデルには `long_context_threshold` と
   `long_input_per_mtok` / `long_output_per_mtok` を指定します。蓄積済み

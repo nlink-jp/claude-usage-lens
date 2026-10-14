@@ -4,7 +4,8 @@ import "testing"
 
 // Prices as published on Anthropic's pricing page (verified 2026-10-14). The
 // cache-read multiplier is per model: 0.1× everywhere except Claude Fable 5.1 /
-// Mythos 5.1 (0.025×) and Claude Opus 5.5 (0.05×), whose reads are footnoted.
+// Mythos 5.1 (0.025×) and Claude Opus 5.5 / Sonnet 5.5 (0.05×), whose reads
+// are footnoted.
 // The write multipliers are the same for every model.
 func TestDefaultTable_KnownModels(t *testing.T) {
 	tbl := Default()
@@ -20,7 +21,7 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		{"claude-opus-5-5", 4, 20, 0.05},
 		{"claude-opus-5", 5, 25, 0.10},
 		{"claude-opus-4-8", 5, 25, 0.10},
-		{"claude-sonnet-5-5", 2, 10, 0.10}, // $0.20 cache read = 0.1× of $2, not Opus 5.5's 0.05×
+		{"claude-sonnet-5-5", 2, 10, 0.05}, // $0.10 cache read, footnoted with Opus 5.5
 		{"claude-sonnet-5", 2, 10, 0.10},   // the scheduled rise to $3/$15 was cancelled
 		{"claude-sonnet-4-6", 3, 15, 0.10},
 		{"claude-haiku-5-5", 0.10, 0.50, 0.10}, // under 100k prompt tokens; see the long-context test

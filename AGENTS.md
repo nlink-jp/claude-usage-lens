@@ -110,8 +110,8 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
   because ingest is incremental and never re-reads already-consumed bytes.
   `reprice` must never touch `cowork` rows.
 - **The cache-read multiplier is per model, not a constant.** Claude Fable 5.1
-  / Mythos 5.1 charge cache reads at 0.025× ($0.25/MTok) and Claude Opus 5.5 at
-  0.05× ($0.20/MTok); every other model is 0.1×. These are the pricing page's
+  / Mythos 5.1 charge cache reads at 0.025× ($0.25/MTok) and Claude Opus 5.5 /
+  Sonnet 5.5 at 0.05× ($0.20 / $0.10 per MTok); every other model is 0.1×. These are the pricing page's
   footnoted exceptions, and they matter more than the base price: cache reads
   are ~70% of a Fable session's notional cost on real data, so copying Fable
   5's entry would overstate Fable 5.1 by ~2×. `rates()` bakes the standard set
@@ -119,8 +119,10 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
   `TestComputeRecord_Fable51CacheRead` and `TestComputeRecord_Opus55`. Re-check
   the footnote when a new model lands — do not assume 0.1×, and derive the
   multiplier as cache-read price ÷ input price rather than matching dollar
-  figures: Sonnet 5.5 and Opus 5.5 both read at $0.20/MTok, which is 0.1× of
-  $2 on one and 0.05× of $4 on the other (`TestComputeRecord_Sonnet55`).
+  figures (`TestComputeRecord_Sonnet55` pins the row in dollars). Re-check the
+  *existing* rows too: Sonnet 5.5 was listed at the standard 0.1× ($0.20) on
+  2026-09-29 and at 0.05× ($0.10) on 2026-10-14 — a published price can change
+  after the model ships.
 - **Long context is a price tier on one model** — Claude Haiku 5.5 bills
   $0.10/$0.50 up to 100,000 prompt tokens and $0.50/$2.50 over it; the page
   lists one pair for every other model (it states flat 1M pricing only for 4.6+

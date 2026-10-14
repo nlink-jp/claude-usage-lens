@@ -25,6 +25,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   flat pricing). `models --json` gains `LongContextThreshold`,
   `LongInputPerMTok` and `LongOutputPerMTok`.
 
+### Fixed
+
+- **`claude-sonnet-5-5` cache reads are priced at 0.05× ($0.10 / MTok).** The
+  pricing page listed Sonnet 5.5's cache read at the standard 0.1× ($0.20) when
+  v0.8.1 was checked on 2026-09-29; it now lists $0.10 in the table and names
+  Sonnet 5.5 beside Opus 5.5 in the 0.05× footnote. v0.8.1 therefore
+  overstated Sonnet 5.5 cache reads by 2× — on the author's store, $2.38 of
+  $11.65 across 178 records. Run `reprice` once to correct stored history.
+  No other price changed; the table is re-verified against the pricing page
+  (`models` footer: 2026-10-14).
+
 ## [0.8.1] - 2026-09-29
 
 ### Fixed

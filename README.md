@@ -241,8 +241,8 @@ output_per_mtok = 20.0
   built-in entry, or from the standard cache multipliers for a model this build
   does not know — so a two-line override is enough. For an unknown model, check
   the pricing page's cache-read footnote: Fable 5.1 / Mythos 5.1 read at 0.025×
-  and Opus 5.5 at 0.05× rather than the standard 0.1×, and a model priced like
-  them needs `cache_read_multiplier` set explicitly. A model priced
+  and Opus 5.5 / Sonnet 5.5 at 0.05× rather than the standard 0.1×, and a model
+  priced like them needs `cache_read_multiplier` set explicitly. A model priced
   by prompt length takes `long_context_threshold` plus `long_input_per_mtok` /
   `long_output_per_mtok`. Run `reprice` afterwards to apply the change to
   already-stored records.
