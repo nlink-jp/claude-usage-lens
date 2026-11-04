@@ -3,7 +3,14 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.9.1] - 2026-11-04
+
+### Changed
+
+- **The config file is read by nlink-jp/toml** (v0.1.1) instead of the
+  third-party `BurntSushi/toml`, so the tool carries no TOML code from
+  outside the organization. The file reads as before: unknown keys are still
+  refused, each named in the error.
 
 ## [0.9.0] - 2026-10-14
 
