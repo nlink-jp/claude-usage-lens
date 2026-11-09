@@ -2,9 +2,9 @@ package pricing
 
 import "testing"
 
-// Prices as published on Anthropic's pricing page (verified 2026-10-14). The
-// cache-read multiplier is per model: 0.1× everywhere except Claude Fable 5.1 /
-// Mythos 5.1 (0.025×) and Claude Opus 5.5 / Sonnet 5.5 (0.05×), whose reads
+// Prices as published on Anthropic's pricing page (verified 2026-11-10). The
+// cache-read multiplier is per model: 0.1× everywhere except Claude Fable /
+// Mythos 5.2 and 5.1 (0.025×) and Claude Opus 5.5 / Sonnet 5.5 (0.05×), whose reads
 // are footnoted.
 // The write multipliers are the same for every model.
 func TestDefaultTable_KnownModels(t *testing.T) {
@@ -15,6 +15,8 @@ func TestDefaultTable_KnownModels(t *testing.T) {
 		wantOutput    float64
 		wantCacheRead float64
 	}{
+		{"claude-fable-5-2", 8, 40, 0.025},
+		{"claude-mythos-5-2", 8, 40, 0.025},
 		{"claude-fable-5-1", 10, 50, 0.025},
 		{"claude-mythos-5-1", 10, 50, 0.025},
 		{"claude-fable-5", 10, 50, 0.10},
@@ -93,6 +95,10 @@ func TestLookup_DatedSnapshotSuffix(t *testing.T) {
 	if r, ok := tbl.Lookup("claude-fable-5-1[1m]"); !ok || r.CacheReadMultiplier != 0.025 {
 		t.Errorf("fable-5-1[1m] should resolve with the 0.025x cache read: %+v ok=%v", r, ok)
 	}
+	// Likewise 5.2: its own entry, never Fable 5.1's or Fable 5's.
+	if r, ok := tbl.Lookup("claude-fable-5-2[1m]"); !ok || r.InputPerMTok != 8 || !r.HasFast() {
+		t.Errorf("fable-5-2[1m] should resolve to Fable 5.2's own rates: %+v ok=%v", r, ok)
+	}
 	// Retired models resolve from their dated API IDs.
 	for m, in := range map[string]float64{
 		"claude-opus-4-1-20250805":  15,
@@ -140,8 +146,8 @@ func TestTierMultiplier(t *testing.T) {
 	}
 }
 
-// Fast mode is a premium tier offered only on Opus 5.5 ($8/$40) and Opus 5 /
-// Opus 4.8 ($10/$50) — the fast pair is per model, not a shared constant.
+// Fast mode is a premium tier offered only on Fable 5.2 / Mythos 5.2
+// ($16/$80), Opus 5.5 ($8/$40) and Opus 5 / Opus 4.8 ($10/$50) — the fast pair is per model, not a shared constant.
 // Opus 4.7 rejects a fast request and Opus 4.6 serves it at standard rates, so
 // neither may carry fast prices.
 func TestDefaultTable_FastModeTier(t *testing.T) {
@@ -152,6 +158,8 @@ func TestDefaultTable_FastModeTier(t *testing.T) {
 		stdIn, stdOut   float64
 		fastIn, fastOut float64
 	}{
+		{"claude-fable-5-2", 8, 40, 16, 80},
+		{"claude-mythos-5-2", 8, 40, 16, 80},
 		{"claude-opus-5-5", 4, 20, 8, 40},
 		{"claude-opus-5", 5, 25, 10, 50},
 		{"claude-opus-4-8", 5, 25, 10, 50},

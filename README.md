@@ -140,7 +140,8 @@ yet. The menu-bar app shows this count as a badge.
 ### Fast mode
 
 Claude Code's `/fast` toggle bills at a premium — **$10 / $50** instead of
-$5 / $25 on Opus 5 and Opus 4.8, **$8 / $40** instead of $4 / $20 on Opus 5.5 —
+$5 / $25 on Opus 5 and Opus 4.8, **$8 / $40** instead of $4 / $20 on Opus 5.5,
+**$16 / $80** instead of $8 / $40 on Fable 5.2 and Mythos 5.2 —
 with the cache multipliers applying on top of the fast price. The transcript records it as `message.usage.speed`, and records are
 priced accordingly — `models` shows the fast tier per model (`—` where the model
 has none, in which case a fast-flagged record bills at the standard rate, matching
@@ -240,7 +241,7 @@ output_per_mtok = 20.0
 - **Prices**: `[pricing.models."<id>"]`. Omitted fields **inherit** — from the
   built-in entry, or from the standard cache multipliers for a model this build
   does not know — so a two-line override is enough. For an unknown model, check
-  the pricing page's cache-read footnote: Fable 5.1 / Mythos 5.1 read at 0.025×
+  the pricing page's cache-read footnote: Fable / Mythos 5.2 and 5.1 read at 0.025×
   and Opus 5.5 / Sonnet 5.5 at 0.05× rather than the standard 0.1×, and a model
   priced like them needs `cache_read_multiplier` set explicitly. A model priced
   by prompt length takes `long_context_threshold` plus `long_input_per_mtok` /

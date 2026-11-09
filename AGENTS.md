@@ -98,7 +98,7 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
 - **A model missing from the table costs $0, silently** — that is intended for
   `<synthetic>` and a bug for everything else (it is how `claude-opus-5` reported
   $0 in 2026-07, `claude-fable-5-1` in 2026-09, and `claude-opus-5-5` three
-  weeks later; `claude-sonnet-5-5` and `claude-haiku-5-5` were caught before their first turn). Three guards exist, keep
+  weeks later; `claude-sonnet-5-5` and `claude-haiku-5-5` were caught before their first turn; `claude-fable-5-2` was not). Three guards exist, keep
   them working: `ingest`/`reprice` warn about billable models absent from the
   table; `report --summary` counts stored `code` rows that carry tokens at $0
   (`unpriced_records` / `unpriced_models`, derived from the rows alone with no
@@ -109,14 +109,15 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
   therefore a two-step fix — update `pricing.Default()`, then `reprice` —
   because ingest is incremental and never re-reads already-consumed bytes.
   `reprice` must never touch `cowork` rows.
-- **The cache-read multiplier is per model, not a constant.** Claude Fable 5.1
-  / Mythos 5.1 charge cache reads at 0.025× ($0.25/MTok) and Claude Opus 5.5 /
+- **The cache-read multiplier is per model, not a constant.** Claude Fable /
+  Mythos 5.2 and 5.1 charge cache reads at 0.025× ($0.20/MTok on 5.2's $8 base,
+  $0.25/MTok on 5.1's $10) and Claude Opus 5.5 /
   Sonnet 5.5 at 0.05× ($0.20 / $0.10 per MTok); every other model is 0.1×. These are the pricing page's
   footnoted exceptions, and they matter more than the base price: cache reads
   are ~70% of a Fable session's notional cost on real data, so copying Fable
   5's entry would overstate Fable 5.1 by ~2×. `rates()` bakes the standard set
   and `withCacheRead` overrides it; the guards are
-  `TestComputeRecord_Fable51CacheRead` and `TestComputeRecord_Opus55`. Re-check
+  `TestComputeRecord_Fable51CacheRead`, `TestComputeRecord_Fable52` and `TestComputeRecord_Opus55`. Re-check
   the footnote when a new model lands — do not assume 0.1×, and derive the
   multiplier as cache-read price ÷ input price rather than matching dollar
   figures (`TestComputeRecord_Sonnet55` pins the row in dollars). Re-check the
@@ -137,9 +138,10 @@ docs/{en,ja}/adr/       ADRs (0001 = real-quota calibration)
   cache multipliers apply on top. A threshold without long prices is not a
   tier (`HasLongContext`), so it can never bill a long prompt at $0.
 - **Fast mode is a price tier, not a model** — `speed: "fast"` bills $10/$50 on
-  Opus 5 / 4.8 and $8/$40 on Opus 5.5, and nowhere else. The fast pair is per
+  Opus 5 / 4.8, $8/$40 on Opus 5.5 and $16/$80 on Fable 5.2 / Mythos 5.2 (the
+  first Fable-tier model with one), and nowhere else. The fast pair is per
   model (`withFast(r, in, out)`), not a shared constant. `Rates.Base(speed, prompt)`
-  picks the pair and the cache multipliers apply on top of it, so a fast cache read is 0.1× the *fast* input price. A
+  picks the pair and the cache multipliers apply on top of it, so a fast cache read is the model's read multiplier × the *fast* input price. A
   fast-flagged record on a model with no fast tier falls back to standard, which
   is what the API does too (Opus 4.6 serves the request at standard rates; Opus
   4.7 rejects it). Batch and fast are mutually exclusive at the API level, so

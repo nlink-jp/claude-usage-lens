@@ -41,7 +41,7 @@ const (
 // speed whose prompt is promptTokens long. Fast mode and the long-context tier
 // are both premiums on the same model, so the cache multipliers apply on top of
 // whichever pair this returns — a cache read during a fast-mode turn costs
-// 0.1× the *fast* input price, not the standard one.
+// the model's read multiplier × the *fast* input price, not the standard one.
 //
 // An unrecognised speed, or fast on a model with no fast tier, falls back to
 // the standard pair: over-charging usage we cannot confirm would be worse than
@@ -89,14 +89,15 @@ type Table map[string]Rates
 // costs 0.1×, a 5-minute ephemeral cache write 1.25×, and a 1-hour ephemeral
 // cache write 2×. The write multipliers hold for every model. The read
 // multiplier has footnoted exceptions on Anthropic's pricing page: Claude
-// Fable 5.1 and Claude Mythos 5.1 charge cache reads at 0.025× ($0.25/MTok
-// against a $10 base), and Claude Opus 5.5 and Claude Sonnet 5.5 at 0.05×
+// Fable 5.2 / 5.1 and Claude Mythos 5.2 / 5.1 charge cache reads at 0.025×
+// ($0.20/MTok against 5.2's $8 base, $0.25/MTok against 5.1's $10 base), and
+// Claude Opus 5.5 and Claude Sonnet 5.5 at 0.05×
 // ($0.20/MTok against a $4 base, $0.10/MTok against a $2 base). Those
 // exceptions are what make the multiplier a per-model field rather than a
 // constant — see withCacheRead.
 const (
 	cacheReadMult             = 0.10
-	cacheReadMultFable51      = 0.025
+	cacheReadMultFable51Up    = 0.025 // Fable / Mythos 5.1 and 5.2
 	cacheReadMultOpusSonnet55 = 0.05
 	cacheWrite5mMult          = 1.25
 	cacheWrite1hMult          = 2.00
@@ -128,7 +129,8 @@ func rates(input, output float64) Rates {
 }
 
 // withFast marks a model as fast-mode capable at the given premium prices.
-// The fast pair is per model: $10/$50 on Opus 5 / 4.8, $8/$40 on Opus 5.5.
+// The fast pair is per model: $16/$80 on Fable 5.2 / Mythos 5.2, $8/$40 on
+// Opus 5.5, $10/$50 on Opus 5 / 4.8.
 func withFast(r Rates, input, output float64) Rates {
 	r.FastInputPerMTok = input
 	r.FastOutputPerMTok = output
@@ -136,7 +138,7 @@ func withFast(r Rates, input, output float64) Rates {
 }
 
 // withCacheRead overrides the cache-read multiplier for a model whose reads are
-// priced off the standard 0.1× (Claude Fable 5.1 / Mythos 5.1 at 0.025×,
+// priced off the standard 0.1× (Claude Fable / Mythos 5.2 and 5.1 at 0.025×,
 // Claude Opus 5.5 / Sonnet 5.5 at 0.05×). The write multipliers and everything
 // else stay as rates() set them.
 func withCacheRead(r Rates, mult float64) Rates {
@@ -157,7 +159,7 @@ func withLongContext(r Rates, threshold int64, input, output float64) Rates {
 // VerifiedOn is the date the built-in table was last checked, column by column
 // and footnotes included, against Anthropic's pricing page. `models` prints it
 // so a reader can judge how stale the table may be.
-const VerifiedOn = "2026-10-14"
+const VerifiedOn = "2026-11-10"
 
 // Default returns the built-in rate table.
 //
@@ -184,6 +186,11 @@ const VerifiedOn = "2026-10-14"
 // nor the fast pair matches any other entry, so copying Opus 5 would be wrong
 // on three terms.
 //
+// Claude Fable 5.2 / Mythos 5.2 are priced below 5.1: $8/$40, cache reads at
+// the same footnoted 0.025× ($0.20/MTok), and — unlike any earlier Fable or
+// Mythos — a fast tier, at $16/$80. Copying 5.1's entry would overstate every
+// term by 25% and bill fast turns at half their price.
+//
 // Claude Fable 5.1 / Mythos 5.1 share Fable 5's $10/$50 and cache-write
 // multipliers but charge cache reads at 0.025× ($0.25/MTok) — one of the
 // pricing page's footnoted exceptions to the 0.1× rule. In a long agentic
@@ -200,15 +207,18 @@ const VerifiedOn = "2026-10-14"
 // through 2026-08-31, but the pricing page now states the scheduled increase
 // to $3/$15 will not occur, so $2/$10 is the standard price.
 //
-// Fast mode (`speed: "fast"`) is a premium tier offered on Opus 5.5 ($8/$40)
-// and Opus 5 / Opus 4.8 ($10/$50) only. Opus 4.7 rejects the request outright
+// Fast mode (`speed: "fast"`) is a premium tier offered on Fable 5.2 / Mythos
+// 5.2 ($16/$80), Opus 5.5 ($8/$40) and Opus 5 / Opus 4.8 ($10/$50) only. Opus 4.7 rejects the request outright
 // and Opus 4.6 silently serves it at standard speed and standard rates, so
 // neither carries fast prices here — a fast-flagged record on any other model bills as standard.
 func Default() Table {
 	return Table{
-		// Fable / Mythos tier — 5.1 has the cheaper cache reads (see above).
-		"claude-fable-5-1":  withCacheRead(rates(10, 50), cacheReadMultFable51),
-		"claude-mythos-5-1": withCacheRead(rates(10, 50), cacheReadMultFable51),
+		// Fable / Mythos tier — 5.1 and 5.2 have the cheaper cache reads, and
+		// 5.2 additionally offers fast mode (see above).
+		"claude-fable-5-2":  withFast(withCacheRead(rates(8, 40), cacheReadMultFable51Up), 16, 80),
+		"claude-mythos-5-2": withFast(withCacheRead(rates(8, 40), cacheReadMultFable51Up), 16, 80),
+		"claude-fable-5-1":  withCacheRead(rates(10, 50), cacheReadMultFable51Up),
+		"claude-mythos-5-1": withCacheRead(rates(10, 50), cacheReadMultFable51Up),
 		"claude-fable-5":    rates(10, 50),
 		"claude-mythos-5":   rates(10, 50),
 		// Opus tier — 5.5, 5 and 4.8 additionally offer fast mode.
@@ -226,9 +236,10 @@ func Default() Table {
 		// Haiku tier — 5.5 has a long-context price pair (see above).
 		"claude-haiku-5-5": withLongContext(rates(0.10, 0.50), 100_000, 0.50, 2.50),
 		"claude-haiku-4-5": rates(1, 5),
-		// Retired on the first-party API (still listed on the pricing page) —
-		// kept so older transcripts are not stored at $0. Haiku 3.5's ID puts
-		// the family last (claude-3-5-haiku-20241022).
+		// Retired on the first-party API — kept so older transcripts are not
+		// stored at $0. The pricing page still lists all but Haiku 3.5, whose
+		// row is its last published price and whose ID puts the family last
+		// (claude-3-5-haiku-20241022).
 		"claude-opus-4-1":  rates(15, 75),
 		"claude-opus-4":    rates(15, 75),
 		"claude-sonnet-4":  rates(3, 15),
