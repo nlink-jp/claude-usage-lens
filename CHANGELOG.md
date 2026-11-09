@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] - 2026-11-10
+
+### Fixed
+
+- **`claude-fable-5-2` was priced at $0.** Claude Fable 5.2 and Claude Mythos
+  5.2 were absent from the rate table, so their turns were stored at $0 — the
+  gap each new model has opened. Both are **$8 / $40** per 1M tokens, below
+  5.1's $10 / $50, with cache writes at the standard multipliers ($10 / $16)
+  and cache reads at the footnoted **0.025×** ($0.20/MTok) they share with
+  5.1. They are the first Fable-tier models with a **fast tier, $16 / $80**.
+  Run `claude-usage-lens reprice` once after upgrading to recompute the rows
+  already stored at $0.
+
+### Changed
+
+- Every other row was re-checked against the pricing page and is unchanged
+  (`models` footer: 2026-11-10).
+
 ## [0.9.1] - 2026-11-04
 
 ### Changed
@@ -424,7 +442,9 @@ and `verify` against Cowork's own audit ground truth.
 - Windows / Linux support is **experimental** — source paths are inferred and
   unverified on real hardware.
 
-[Unreleased]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/nlink-jp/claude-usage-lens/compare/v0.7.0...v0.8.0
